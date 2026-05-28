@@ -438,13 +438,14 @@ function Sidebar({user,page,setPage,open,onClose}){
     {id:"daily_plan",icon:"cal",label:"Daily Plans"},
     {id:"clients",icon:"users",label:"Clients"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
-    {id:"settings",icon:"set",label:"Settings / CallMeBot"},,
+    {id:"settings",icon:"set",label:"Settings / CallMeBot"},
   ];
   const staffNav=[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
     {id:"my-activity",icon:"map",label:"My Activities"},
+    {id:"attend",icon:"clock",label:"Attendance"},
   ];
   const clientNav=[
     {id:"client_dash",icon:"dash",label:"My Dashboard"},
@@ -3650,7 +3651,7 @@ function Soon({title}){
 export default function App(){
   const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");return s?JSON.parse(s):null;}catch{return null;}};
   const [user,setUser]=useState(getSaved);
-  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="supervisor"?"dash":u.role==="client"?"client_dash":"my-dash"):"dash";});
+  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="supervisor"?"my-dash":u.role==="client"?"client_dash":"my-dash"):"dash";});
   
   
   const [data,setData]=useState(initData());
@@ -3661,7 +3662,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -3693,11 +3694,12 @@ export default function App(){
       return <ClientDashPage user={user} data={data} toast={toast}/>;
     } else {
       switch(page){
-        case "my-dash": return <MyDash user={user} data={data}/>;
+        case "my-dash": return <MyDash user={user} data={data} setPage={setPage}/>;
         case "clock-in": return <ClockPage user={user} data={data} setData={setData} toast={toast}/>;
         case "my-salary": return <MySalaryPage user={user} data={data}/>;
         case "my-activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
-        default: return <MyDash user={user} data={data}/>;
+        case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
+        default: return <MyDash user={user} data={data} setPage={setPage}/>;
       }
     }
   };
