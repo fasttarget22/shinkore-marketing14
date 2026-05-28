@@ -462,6 +462,36 @@ function Sidebar({user,page,setPage,open,onClose}){
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 function AdminDash({data,toast,setPage}){
   const todayDate=new Date().toISOString().slice(0,10);
+  const [alertPopup,setAlertPopup]=useState(null);
+  const [alertDismissed,setAlertDismissed]=useState([]);
+  useEffect(()=>{
+    const check=async()=>{
+      const now=new Date();
+      const today=now.toISOString().slice(0,10);
+      const cur=now.getHours()*60+now.getMinutes();
+      const att=(data.attendance||[]).filter(a=>a.date===today);
+      const absent=data.allocations.filter(a=>a.active).filter(a=>{
+        const h=(a.duty_start||"09:00").split(":");
+        const duty=Number(h[0])*60+Number(h[1]);
+        return cur>duty+30&&!att.find(x=>x.user_id===a.user_id)&&!(alertDismissed||[]).includes(a.user_id);
+      });
+      if(absent.length>0&&!alertPopup){
+        const details=absent.map(a=>{
+          var u=(data.users||[]).find(x=>x.id===a.user_id);
+          var s=(data.stalls||[]).find(x=>x.id===a.stall_id);
+          return (u?u.name:"?")+"/"+(u?u.role:"")+" at "+(s?s.name:"?")+","+(s?s.city:"")+" duty:"+a.duty_start;
+        }).join("; ");
+        try{
+          const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
+          const json=await res.json();
+          setAlertPopup({absent,details,msg:json.content&&json.content[0]?json.content[0].text:absent.length+" staff not checked in!"});
+        }catch(e){setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});}
+      }
+    };
+    check();
+    const t=setInterval(check,5*60*1000);
+    return()=>clearInterval(t);
+  },[data.attendance,data.allocations]);
   const todayActs=(data.activities||[]).filter(a=>a.date===todayDate);
   const pendingApprovals=todayActs.filter(a=>a.approval_status==="submitted").length;
   const highRemarks=(data.activities||[]).filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
@@ -517,6 +547,39 @@ function AdminDash({data,toast,setPage}){
         <div className="sc rd" onClick={()=>setPage&&setPage("attend")} style={{cursor:"pointer"}}><div className="si rd"><I n="clock" s={18}/></div><div className="sv">{todayAtt.length}</div><div className="sl">Checked In Today</div></div>
       </div>
 
+      {alertPopup&&(
+        <div onClick={function(e){if(e.target===e.currentTarget)setAlertPopup(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--d2)",border:"2px solid var(--rd)",borderRadius:16,padding:20,maxWidth:400,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <span style={{fontSize:28}}>🚨</span>
+              <div><div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--rd)"}}>ATTENDANCE ALERT</div>
+              <div style={{fontSize:11,color:"var(--txd)"}}>{alertPopup.absent.length} staff not checked in</div></div>
+            </div>
+            <div style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,lineHeight:1.6}}>
+              <div style={{fontSize:10,color:"var(--rd)",fontWeight:700,marginBottom:4}}>🤖 AI ALERT</div>
+              {alertPopup.msg}
+            </div>
+            {alertPopup.absent.map(function(a){
+              var u=(data.users||[]).find(function(x){return x.id===a.user_id;});
+              var s=(data.stalls||[]).find(function(x){return x.id===a.stall_id;});
+              return(
+                <div key={a.user_id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--bo)"}}>
+                  <div style={{width:36,height:36,borderRadius:9,background:"rgba(231,76,60,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,color:"var(--rd)"}}>{u?getInitials(u.name):"?"}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600}}>{u?u.name:"Unknown"}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{s?s.name:"?"}, {s?s.city:"?"} · Duty: {a.duty_start}</div>
+                  </div>
+                  <button onClick={function(){sendWA(u?u.phone:"","Shinkore: Aap ne abhi tak "+(s?s.name:"stall")+" par check-in nahi kiya. Foran report karein.");}} style={{fontSize:11,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"#25d366"}}>WA</button>
+                </div>
+              );
+            })}
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button onClick={function(){sendWA(ADMIN_PHONES[0],"ATTENDANCE ALERT\n"+alertPopup.msg+"\n\n"+alertPopup.details);setAlertPopup(null);}} style={{flex:1,background:"var(--rd)",border:"none",borderRadius:8,padding:8,cursor:"pointer",color:"#fff",fontSize:12,fontWeight:600}}>📤 Alert Khalid</button>
+              <button onClick={function(){setAlertDismissed(function(prev){return prev.concat(alertPopup.absent.map(function(a){return a.user_id;}));});setAlertPopup(null);}} style={{flex:1,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:8,cursor:"pointer",color:"var(--txd)",fontSize:12}}>Dismiss</button>
+            </div>
+          </div>
+        </div>
+      )}
       {(pendingApprovals>0||highRemarks>0)&&<div className="sg" style={{marginBottom:16}}>
         {pendingApprovals>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{pendingApprovals}</div><div className="sl">Pending Approvals</div></div>}
         {highRemarks>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{highRemarks}</div><div className="sl">High Priority</div></div>}
