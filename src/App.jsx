@@ -2439,6 +2439,49 @@ function ActivityPage({user,data,setData,toast}){
   const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
   const bas=(data.users||[]).filter(u=>u.role==="ba");
   const sups=(data.users||[]).filter(u=>u.role==="supervisor");
+  const [aiSummary,setAiSummary]=useState({});
+  const [aiLoading,setAiLoading]=useState({});
+  const generateAISummary=async(act)=>{
+    const ba=(data.users||[]).find(u=>u.id===act.ba_id);
+    const sup=(data.users||[]).find(u=>u.id===act.supervisor_id);
+    const hrs=calcHours(act.punch_in,act.punch_out,act.break_start,act.break_end);
+    setAiLoading(p=>({...p,[act.id]:true}));
+    try{
+      const prompt="Generate a professional 3-4 sentence activity summary for a field marketing report based on this data:\n"+
+        "Date: "+act.date+"\n"+
+        "BA: "+(ba?.name||"Unknown")+"\n"+
+        "Supervisor: "+(sup?.name||"Unknown")+"\n"+
+        "Store: "+act.store_name+", "+act.city+"\n"+
+        "Brand: "+act.brand+"\n"+
+        "Activity Type: "+act.type+"\n"+
+        "Location Type: "+act.location_type+"\n"+
+        "Working Hours: "+hrs+"\n"+
+        "Punch In: "+(act.punch_in||"—")+" | Punch Out: "+(act.punch_out||"—")+"\n"+
+        "Interceptions: "+(act.total_interceptions||0)+"\n"+
+        "Buyers: "+(act.total_productive||0)+"\n"+
+        "Sales KG: "+(act.total_kg||0)+"\n"+
+        "Sales PCs: "+(act.total_pcs||0)+"\n"+
+        "BA Remark: "+(act.ba_remark||"None")+" ("+act.ba_remark_cat+" priority)\n"+
+        "Approval Status: "+act.approval_status+"\n"+
+        "Write in professional English. Start with the date and BA name. Be concise and factual.";
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const json=await res.json();
+      const text=json.content?.[0]?.text||"Could not generate summary.";
+      setAiSummary(p=>({...p,[act.id]:text}));
+    }catch(e){
+      setAiSummary(p=>({...p,[act.id]:"Error generating summary. Try again."}));
+    }
+    setAiLoading(p=>({...p,[act.id]:false}));
+  };
+
   const doSave=()=>{
     if(!form.city||!form.store_name||!form.brand)return toast("City, store and brand required.");
     if(!form.ba_id)return toast("Select BA.");
@@ -2707,8 +2750,18 @@ function ActivityPage({user,data,setData,toast}){
               <button className="bs" onClick={()=>openEdit(act)} style={{fontSize:12}}><I n="edit" s={13}/>Edit</button>
               <button className="bs" onClick={()=>printActivity(act)} style={{fontSize:12}}><I n="pdf" s={13}/>PDF</button>
               <button className="bw" onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===act.ba_id);sendWA(ADMIN_PHONES[0],"Activity: "+act.type+" | "+act.store_name+", "+act.city+"\nBA: "+(ba2?.name||"")+"\nDate: "+act.date);}} style={{fontSize:12}}><I n="wa" s={13}/>Share</button>
+              <button onClick={()=>generateAISummary(act)} disabled={aiLoading[act.id]} style={{fontSize:12,background:"linear-gradient(135deg,rgba(139,92,246,.2),rgba(59,130,246,.2))",border:"1px solid rgba(139,92,246,.4)",borderRadius:8,padding:"5px 12px",cursor:"pointer",color:"#a78bfa",display:"flex",alignItems:"center",gap:6}}>{aiLoading[act.id]?"⏳ Generating...":"✨ AI Summary"}</button>
               {isAdmin&&<button className="brd" onClick={()=>{if(!confirm("Delete?"))return;const d={...data,activities:data.activities.filter(a=>a.id!==act.id)};setData(d);save(d);toast("Deleted.");}} style={{marginLeft:"auto",fontSize:12}}><I n="del" s={13}/>Delete</button>}
             </div>
+            {aiSummary[act.id]&&<div style={{marginTop:10,padding:"12px 14px",borderRadius:10,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)"}}>
+              <div style={{fontSize:11,color:"#a78bfa",fontWeight:600,marginBottom:6}}>✨ AI SUMMARY</div>
+              <div style={{fontSize:13,color:"var(--tx)",lineHeight:1.6}}>{aiSummary[act.id]}</div>
+              <div style={{display:"flex",gap:8,marginTop:8}}>
+                <button onClick={()=>{navigator.clipboard.writeText(aiSummary[act.id]);toast("Copied!");}} style={{fontSize:11,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
+                <button onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===act.ba_id);const phone=ba2?.phone||ADMIN_PHONES[0];sendWA(phone,"✨ AI Activity Summary\n\n"+aiSummary[act.id]+"\n\n— Shinkore Marketing");}} style={{fontSize:11,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
+                <button onClick={()=>setAiSummary(p=>({...p,[act.id]:null}))} style={{fontSize:11,background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"var(--rd)"}}>✕ Close</button>
+              </div>
+            </div>}
           </div>
         );
       })}
