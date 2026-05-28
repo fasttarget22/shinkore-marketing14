@@ -593,6 +593,52 @@ function StaffPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
   const [search,setSearch]=useState("");
+  const [aiPerf,setAiPerf]=useState({});
+  const [aiPerfLoading,setAiPerfLoading]=useState({});
+
+  const generatePerformance=async(u)=>{
+    setAiPerfLoading(p=>({...p,[u.id]:true}));
+    setAiPerf(p=>({...p,[u.id]:""}));
+    try{
+      const today=new Date().toISOString().slice(0,10);
+      const thisMonth=today.slice(0,7);
+      const myAtt=(data.attendance||[]).filter(a=>a.user_id===u.id);
+      const monthAtt=new Set(myAtt.filter(a=>a.date.startsWith(thisMonth)).map(a=>a.date)).size;
+      const totalDays=new Set(myAtt.map(a=>a.date)).size;
+      const myActs=(data.activities||[]).filter(a=>a.ba_id===u.id||a.supervisor_id===u.id);
+      const monthActs=myActs.filter(a=>a.date&&a.date.startsWith(thisMonth));
+      const totalInter=monthActs.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+      const totalPcs=monthActs.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+      const totalKg=monthActs.reduce((s,a)=>s+Number(a.total_kg||0),0);
+      const highRemarks=myActs.filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
+      const approved=myActs.filter(a=>a.approval_status==="approved").length;
+      const alloc=data.allocations.filter(a=>a.user_id===u.id&&a.active);
+      const stallNames=alloc.map(a=>{const s=(data.stalls||[]).find(x=>x.id===a.stall_id);return s?s.name+","+s.city:"";}).join("; ");
+      const prompt="You are a field marketing HR analyst for Shinkore Marketing, Abbottabad Pakistan. Generate a professional performance review for this staff member:\n"+
+        "Name: "+u.name+"\n"+
+        "Role: "+u.role+"\n"+
+        "Daily Rate: PKR "+u.daily_rate+"\n"+
+        "Team: "+(u.team||"Unassigned")+"\n"+
+        "Total Days Worked: "+totalDays+"\n"+
+        "This Month Attendance: "+monthAtt+" days\n"+
+        "Assigned Stalls: "+(stallNames||"None")+"\n"+
+        "This Month Activities: "+monthActs.length+"\n"+
+        "This Month Interceptions: "+totalInter+"\n"+
+        "This Month Sales PCs: "+totalPcs+"\n"+
+        "This Month Sales KG: "+totalKg+"\n"+
+        "High Priority Remarks: "+highRemarks+"\n"+
+        "Approved Activities: "+approved+"\n"+
+        "Write a 3-4 sentence performance review. Rate as Excellent/Good/Average/Poor. Give one specific recommendation. Be professional and constructive.";
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+      });
+      const json=await res.json();
+      setAiPerf(p=>({...p,[u.id]:json.content?.[0]?.text||"Could not generate review."}));
+    }catch(e){setAiPerf(p=>({...p,[u.id]:"Error. Check connection."}));}
+    setAiPerfLoading(p=>({...p,[u.id]:false}));
+  };
   const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:"",paid_by:"admin"});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
@@ -664,6 +710,15 @@ function StaffPage({data,setData,toast}){
                   <button className="bw" onClick={()=>sendWA(u.phone,`Assalam o Alaikum ${u.name}!`)}><I n="wa" s={13}/>WA</button>
                   <button className="brd" onClick={()=>doDel(u)} style={{marginLeft:"auto"}}><I n="del" s={13}/>Remove</button>
                 </div>
+                <button onClick={()=>generatePerformance(u)} disabled={aiPerfLoading[u.id]} style={{width:"100%",marginTop:8,fontSize:12,background:"linear-gradient(135deg,rgba(139,92,246,.15),rgba(59,130,246,.15))",border:"1px solid rgba(139,92,246,.35)",borderRadius:8,padding:"6px",cursor:"pointer",color:"#a78bfa"}}>{aiPerfLoading[u.id]?"⏳ Analyzing...":"🤖 AI Performance Review"}</button>
+                {aiPerf[u.id]&&<div style={{marginTop:8,padding:"10px 12px",borderRadius:8,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.2)",fontSize:12,color:"var(--tx)",lineHeight:1.6}}>
+                  <div style={{fontSize:10,color:"#a78bfa",fontWeight:600,marginBottom:4}}>🤖 AI REVIEW</div>
+                  {aiPerf[u.id]}
+                  <div style={{display:"flex",gap:6,marginTop:6}}>
+                    <button onClick={()=>{navigator.clipboard.writeText(aiPerf[u.id]);toast("Copied!");}} style={{fontSize:10,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
+                    <button onClick={()=>sendWA(u.phone,"🤖 Your Performance Review\n\n"+aiPerf[u.id]+"\n\n— Shinkore Marketing")} style={{fontSize:10,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#25d366"}}>📤 Send to Staff</button>
+                  </div>
+                </div>}
               </div>
             ))}
           </div>
