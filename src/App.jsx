@@ -419,6 +419,7 @@ function Sidebar({user,page,setPage,open,onClose}){
     {id:"clients",icon:"users",label:"Clients"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},
+    {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
   const staffNav=[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
@@ -3183,6 +3184,129 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
 }
 
 
+// ─── ASK AI PAGE ──────────────────────────────────────────────────────────────
+function AskAIPage({data,user}){
+  const [messages,setMessages]=useState([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! I'm your Shinkore AI assistant. I have access to all your business data — staff, attendance, activities, salary, cash, clients and stalls. Ask me anything!"}]);
+  const [input,setInput]=useState("");
+  const [loading,setLoading]=useState(false);
+  const bottomRef=useRef(null);
+
+  useEffect(()=>{if(bottomRef.current)bottomRef.current.scrollIntoView({behavior:"smooth"});},[messages]);
+
+  const buildContext=()=>{
+    const today=new Date().toISOString().slice(0,10);
+    const thisMonth=today.slice(0,7);
+    const staff=(data.users||[]).filter(u=>u.role!=="admin");
+    const todayAtt=(data.attendance||[]).filter(a=>a.date===today);
+    const monthAtt=(data.attendance||[]).filter(a=>a.date.startsWith(thisMonth));
+    const activities=(data.activities||[]);
+    const monthActs=activities.filter(a=>a.date&&a.date.startsWith(thisMonth));
+    const salary=(data.salary||[]);
+    const handovers=(data.handovers||[]);
+    const expenses=(data.expenses||[]);
+    const clients=(data.clients||[]);
+    const stalls=(data.stalls||[]);
+    const allocs=(data.allocations||[]).filter(a=>a.active);
+    const staffSummary=staff.map(u=>{
+      const att=new Set((data.attendance||[]).filter(a=>a.user_id===u.id&&a.date.startsWith(thisMonth)).map(a=>a.date)).size;
+      const acts=monthActs.filter(a=>a.ba_id===u.id||a.supervisor_id===u.id).length;
+      const stall=allocs.find(a=>a.user_id===u.id);
+      const stallName=stall?(stalls.find(s=>s.id===stall.stall_id)?.name||""):"Unassigned";
+      return u.name+"("+u.role+",PKR "+u.daily_rate+"/day,"+att+" days this month,"+acts+" activities,stall:"+stallName+")";
+    }).join("; ");
+    const actSummary=monthActs.slice(-20).map(a=>{
+      const ba=(data.users||[]).find(u=>u.id===a.ba_id);
+      return a.date+":"+a.store_name+","+a.city+","+a.brand+",BA:"+(ba?.name||"?")+",inter:"+a.total_interceptions+",pcs:"+a.total_pcs+",kg:"+a.total_kg+",status:"+a.approval_status;
+    }).join("; ");
+    const cashSummary="Handovers total:PKR "+handovers.reduce((s,h)=>s+Number(h.amount_given||0),0)+
+      ", Expenses total:PKR "+expenses.reduce((s,e)=>s+Number(e.amount||0),0)+
+      ", Client payments:PKR "+(data.client_payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
+    const clientSummary=clients.map(cl=>cl.name+"(brand:"+cl.brand+",phone:"+cl.phone+")").join("; ");
+    const stallSummary=stalls.map(s=>s.name+","+s.city+",client:"+s.client+",GPS:"+(s.lat?"✓":"✗")).join("; ");
+    return "TODAY: "+today+" | COMPANY: Shinkore Marketing, CEO: Khalid Orakzai, Abbottabad Pakistan\n"+
+      "STAFF ("+staff.length+"): "+staffSummary+"\n"+
+      "TODAY ATTENDANCE: "+todayAtt.length+" checked in of "+allocs.length+" allocated\n"+
+      "THIS MONTH ACTIVITIES ("+monthActs.length+"): "+actSummary+"\n"+
+      "CASH: "+cashSummary+"\n"+
+      "CLIENTS: "+clientSummary+"\n"+
+      "STALLS: "+stallSummary+"\n"+
+      "SALARY RECORDS: "+salary.length+" records, paid: PKR "+salary.filter(s=>s.status==="paid").reduce((s,r)=>s+Number(r.total||0),0);
+  };
+
+  const sendMessage=async()=>{
+    if(!input.trim()||loading)return;
+    const userMsg={role:"user",content:input.trim()};
+    const newMessages=[...messages,userMsg];
+    setMessages(newMessages);
+    setInput("");
+    setLoading(true);
+    try{
+      const context=buildContext();
+      const systemPrompt="You are Shinkore AI, a smart business assistant for Shinkore Marketing, a field marketing company in Abbottabad, Pakistan. You help CEO Khalid Orakzai manage his business. You have access to all business data provided below. Answer questions accurately, generate reports, give insights, and help make decisions. Be concise but thorough. Respond in English unless asked in Urdu.\n\nBUSINESS DATA:\n"+context;
+      const apiMessages=newMessages.map(m=>({role:m.role,content:m.content}));
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system:systemPrompt,
+          messages:apiMessages
+        })
+      });
+      const json=await res.json();
+      const reply=json.content?.[0]?.text||"Sorry, could not get a response.";
+      setMessages(p=>[...p,{role:"assistant",content:reply}]);
+    }catch(e){
+      setMessages(p=>[...p,{role:"assistant",content:"❌ Connection error. Please try again."}]);
+    }
+    setLoading(false);
+  };
+
+  const suggestions=["Who hasn't clocked in today?","Generate morning briefing","Which store has best sales this month?","Show staff performance summary","How much salary is pending?","Which client has most activities?","Analyze this month's expenses","Write a report for all clients"];
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
+      <div style={{background:"linear-gradient(135deg,rgba(139,92,246,.1),rgba(59,130,246,.1))",border:"1px solid rgba(139,92,246,.25)",borderRadius:14,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{fontSize:28}}>🤖</div>
+        <div>
+          <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"#a78bfa"}}>Shinkore AI Assistant</div>
+          <div style={{fontSize:11,color:"var(--txd)"}}>Has access to all your business data • Powered by Claude AI</div>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+        {messages.map(function(m,i){
+          return(
+            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+              <div style={{maxWidth:"85%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?"linear-gradient(135deg,rgba(139,92,246,.3),rgba(59,130,246,.3))":"var(--d3)",border:"1px solid "+(m.role==="user"?"rgba(139,92,246,.4)":"var(--bo)"),fontSize:13,color:"var(--tx)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                {m.role==="assistant"&&<div style={{fontSize:10,color:"#a78bfa",fontWeight:600,marginBottom:4}}>🤖 SHINKORE AI</div>}
+                {m.content}
+              </div>
+            </div>
+          );
+        })}
+        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}>
+          <div style={{padding:"10px 14px",borderRadius:"14px 14px 14px 4px",background:"var(--d3)",border:"1px solid var(--bo)",fontSize:13,color:"#a78bfa"}}>⏳ Thinking...</div>
+        </div>}
+        <div ref={bottomRef}/>
+      </div>
+      {messages.length===1&&<div style={{marginBottom:10}}>
+        <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>💡 Quick questions:</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {suggestions.map(function(s){return(
+            <button key={s} onClick={()=>setInput(s)} style={{fontSize:11,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:20,padding:"4px 10px",cursor:"pointer",color:"var(--txd)"}}>{s}</button>
+          );})}
+        </div>
+      </div>}
+      <div style={{display:"flex",gap:8}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage()} placeholder="Ask anything about your business..." className="fi" style={{flex:1,fontSize:13}}/>
+        <button onClick={sendMessage} disabled={loading||!input.trim()} style={{background:"linear-gradient(135deg,rgba(139,92,246,.4),rgba(59,130,246,.4))",border:"1px solid rgba(139,92,246,.5)",borderRadius:10,padding:"0 16px",cursor:"pointer",color:"#a78bfa",fontSize:18,opacity:loading||!input.trim()?0.5:1}}>➤</button>
+        <button onClick={()=>setMessages([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! How can I help you today?"}])} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"0 12px",cursor:"pointer",color:"var(--txd)",fontSize:12}}>🗑️</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── CLIENT STORE MAP (LEAFLET) ───────────────────────────────────────────────
 function ClientStoreMap({client,data}){
   const mapRef=useRef(null);
@@ -3811,7 +3935,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -3837,6 +3961,7 @@ export default function App(){
         case "apk": return <ApkPage/>;
         case "cash": return <CashPage data={data} setData={setData} toast={toast}/>;
         case "salary": return <SalaryPage data={data} setData={setData} toast={toast}/>;
+        case "ai": return <AskAIPage data={data} user={user}/>;
         default: return <AdminDash data={data} toast={toast} setPage={setPage}/>;
       }
     } else if(user.role==="client"){
