@@ -1293,48 +1293,170 @@ function SettingsPage({data,setData,toast}){
 }
 
 // ─── STAFF MY DASH ────────────────────────────────────────────────────────────
-function MyDash({user,data}){
+function MyDash({user,data,setPage}){
   const today=new Date().toISOString().slice(0,10);
-  const myPlans=(data.daily_plans||[]).filter(p=>p.ba_id===user.id&&p.date===today);
+  const isSup=user.role==="supervisor";
   const allocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
   const myAtt=(data.attendance||[]).filter(a=>a.user_id===user.id);
-  const daysWorked=new Set(myAtt.map(a=>a.date)).size;
+  const todayAtt=myAtt.filter(a=>a.date===today);
+  const thisMonthStr=today.slice(0,7);
+  const monthDays=new Set(myAtt.filter(a=>a.date.startsWith(thisMonthStr)).map(a=>a.date)).size;
+  const monthEarned=monthDays*(user.daily_rate||0);
+  const myActs=(data.activities||[]).filter(a=>isSup?a.supervisor_id===user.id:a.ba_id===user.id);
+  const pendingActs=myActs.filter(a=>a.approval_status==="draft"||a.approval_status==="pending");
+  const myBAs=isSup?(data.users||[]).filter(u=>{
+    var myStallIds=data.allocations.filter(a=>a.user_id===user.id&&a.active).map(a=>a.stall_id);
+    return u.role==="ba"&&data.allocations.some(a=>a.user_id===u.id&&a.active&&myStallIds.includes(a.stall_id));
+  }):[];
+  const [now,setNow]=useState(new Date());
+  useEffect(()=>{var t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
+  var timeStr=now.toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  var dateStr=now.toLocaleDateString("en-PK",{weekday:"long",month:"long",day:"numeric"});
+  var last7=[];
+  for(var i=6;i>=0;i--){var d=new Date();d.setDate(d.getDate()-i);last7.push(d.toISOString().slice(0,10));}
   return(
     <div>
-      <div className="card" style={{marginBottom:14}}>
+      <div className="card" style={{marginBottom:14,background:"linear-gradient(135deg,var(--d2),var(--d3))"}}>
         <div className="cb">
-          <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <div className={`av ${avatarClass(user.role)}`} style={{width:56,height:56,fontSize:20,borderRadius:12}}>{getInitials(user.name)}</div>
+          <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
+            <div className={`av ${avatarClass(user.role)}`} style={{width:64,height:64,fontSize:24,borderRadius:16,boxShadow:"0 4px 16px rgba(0,0,0,0.3)"}}>{getInitials(user.name)}</div>
             <div style={{flex:1}}>
-              <div style={{fontFamily:"Rajdhani",fontSize:21,fontWeight:700}}>{user.name}</div>
-              <div style={{fontSize:13,color:"var(--txd)"}}>{user.role==="ba"?"Business Ambassador":"Supervisor"}</div>
-              <div style={{fontSize:13,color:"var(--txd)"}}>{user.phone}</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:23,fontWeight:700}}>{user.name}</div>
+              <div style={{fontSize:13,color:"var(--bl)",fontWeight:600}}>{isSup?"👮 Supervisor":"🧑 Business Ambassador"}</div>
+              <div style={{fontSize:12,color:"var(--txd)"}}>{user.phone} · Team: {user.team||"—"}</div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Daily Rate</div>
-              <div style={{fontFamily:"Rajdhani",fontSize:22,color:"var(--g)"}}>{formatPKR(user.daily_rate)}</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:26,color:"var(--g)",fontWeight:700}}>{formatPKR(user.daily_rate)}</div>
+              <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase"}}>Per Day</div>
             </div>
+          </div>
+          <div style={{background:"var(--d3)",borderRadius:12,padding:"10px 14px",textAlign:"center",border:"1px solid var(--bo)"}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:32,fontWeight:700,color:"var(--g)",letterSpacing:2}}>{timeStr}</div>
+            <div style={{fontSize:12,color:"var(--txd)"}}>{dateStr}</div>
           </div>
         </div>
       </div>
-      <div className="sg">
-        <div className="sc gr"><div className="si gr"><I n="ok" s={16}/></div><div className="sv">{daysWorked}</div><div className="sl">Days Worked</div></div>
-        <div className="sc gold"><div className="si gold"><I n="money" s={16}/></div><div className="sv">{formatPKR(daysWorked*(user.daily_rate||0))}</div><div className="sl" style={{fontSize:9}}>Earned (est.)</div></div>
+      <div className="sg" style={{marginBottom:14}}>
+        <div className="sc gr"><div className="si gr"><I n="ok" s={16}/></div><div className="sv">{monthDays}</div><div className="sl">Days This Month</div></div>
+        <div className="sc gold"><div className="si gold"><I n="money" s={16}/></div><div className="sv">{formatPKR(monthEarned)}</div><div className="sl" style={{fontSize:9}}>Month Earned</div></div>
+        <div className="sc bl"><div className="si bl"><I n="pin" s={16}/></div><div className="sv">{allocs.length}</div><div className="sl">Active Stalls</div></div>
+        <div className="sc rd"><div className="si rd"><I n="alert" s={16}/></div><div className="sv">{pendingActs.length}</div><div className="sl">Pending Reports</div></div>
       </div>
-      {allocs.map(a=>{
-        const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
-        const att=(data.attendance||[]).find(x=>x.user_id===user.id&&x.stall_id===a.stall_id&&x.date===today);
-        return s?(
-          <div className="card" key={a.id}>
-            <div className="ch"><I n="pin" s={16} c="var(--g)"/><div><div className="ct">{s.name}</div><div className="cs">{s.city} · Duty at {a.duty_start}</div></div></div>
-            <div className="cb">
-              <div style={{fontSize:13,marginBottom:8}}>GPS Required: <span style={{color:"var(--bl)"}}>{Number(s.lat).toFixed(5)}, {Number(s.lng).toFixed(5)}</span></div>
-              {att?<div className="info info-ok"><I n="ok" s={13}/>Today: In {att.clock_in}{att.clock_out?` → Out ${att.clock_out}`:""}</div>
-                :<div className="info info-warn"><I n="alert" s={13}/>Not clocked in today — go to Clock In/Out</div>}
-            </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="ch"><I n="clock" s={16} c="var(--g)"/><div className="ct">Today's Stalls</div></div>
+        <div className="cb">
+          {allocs.length===0&&<div className="info info-warn"><I n="alert" s={13}/>No active stall assigned.</div>}
+          {allocs.map(a=>{
+            var s=(data.stalls||[]).find(x=>x.id===a.stall_id);
+            var att=todayAtt.find(x=>x.stall_id===a.stall_id);
+            if(!s)return null;
+            return(
+              <div key={a.id} style={{background:"var(--d3)",borderRadius:12,padding:"12px 14px",marginBottom:10,border:"1px solid var(--bo)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                  <I n="pin" s={15} c="var(--g)"/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
+                    <div style={{fontSize:12,color:"var(--txd)"}}>{s.city} · Duty: {a.duty_start||"—"}</div>
+                  </div>
+                  <div style={{fontSize:11,padding:"3px 8px",borderRadius:6,background:s.lat&&s.lng?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.lat&&s.lng?"var(--g)":"var(--rd)",border:"1px solid "+(s.lat&&s.lng?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)")}}>{s.lat&&s.lng?"🎯 GPS":"❌ No GPS"}</div>
+                </div>
+                {att?<div style={{background:"rgba(46,204,113,.1)",border:"1px solid rgba(46,204,113,.25)",borderRadius:8,padding:"8px 12px",fontSize:13}}>
+                  <span style={{color:"var(--g)",fontWeight:600}}>✅ In: {att.clock_in}</span>
+                  {att.clock_out&&<span style={{color:"var(--txd)",marginLeft:12}}>→ Out: {att.clock_out}</span>}
+                  {att.dist&&<span style={{color:"var(--txd)",fontSize:11,marginLeft:12}}>📏 {att.dist}m</span>}
+                </div>:<div style={{background:"rgba(240,165,0,.1)",border:"1px solid rgba(240,165,0,.25)",borderRadius:8,padding:"8px 12px",fontSize:13,display:"flex",alignItems:"center",gap:8}}>
+                  <I n="alert" s={13} c="var(--or)"/>
+                  <span style={{color:"var(--or)"}}>Not clocked in</span>
+                  <button onClick={()=>setPage&&setPage("clock-in")} style={{marginLeft:"auto",background:"var(--g)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer"}}>Clock In →</button>
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="ch"><I n="ok" s={16} c="var(--g)"/><div className="ct">This Week</div></div>
+        <div className="cb">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+            {last7.map(function(d){
+              var att=myAtt.find(function(a){return a.date===d;});
+              var isToday=d===today;
+              var day=new Date(d+"T00:00:00").toLocaleDateString("en-PK",{weekday:"short"}).slice(0,2);
+              return(
+                <div key={d} style={{textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"var(--txd)",marginBottom:4}}>{day}</div>
+                  <div style={{width:34,height:34,borderRadius:8,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,background:att?"rgba(46,204,113,.2)":isToday?"rgba(58,155,213,.15)":"var(--d3)",border:"1px solid "+(att?"rgba(46,204,113,.4)":isToday?"rgba(58,155,213,.4)":"var(--bo)"),color:att?"var(--g)":isToday?"var(--bl)":"var(--txd)"}}>
+                    {att?"✓":isToday?"·":"—"}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ):null;
-      })}
+        </div>
+      </div>
+      {isSup&&myBAs.length>0&&(
+        <div className="card" style={{marginBottom:14}}>
+          <div className="ch"><I n="users" s={16} c="var(--bl)"/><div className="ct">My BA Team Today</div></div>
+          <div className="cb">
+            {myBAs.map(function(ba){
+              var baAtt=(data.attendance||[]).find(function(a){return a.user_id===ba.id&&a.date===today;});
+              var baActs=(data.activities||[]).filter(function(a){return a.ba_id===ba.id&&a.date===today;});
+              return(
+                <div key={ba.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--bo)"}}>
+                  <div className="av av-green" style={{width:40,height:40,fontSize:14,borderRadius:10}}>{getInitials(ba.name)}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14}}>{ba.name}</div>
+                    <div style={{fontSize:12,color:"var(--txd)"}}>{ba.phone}</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                    <div style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:baAtt?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:baAtt?"var(--g)":"var(--rd)",border:"1px solid "+(baAtt?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)")}}>{baAtt?"✅ In "+baAtt.clock_in:"❌ Not In"}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{baActs.length} report{baActs.length!==1?"s":""} today</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="card" style={{marginBottom:14}}>
+        <div className="ch"><I n="dash" s={16} c="var(--g)"/><div className="ct">Quick Actions</div></div>
+        <div className="cb">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <button onClick={()=>setPage&&setPage("clock-in")} style={{background:"rgba(46,204,113,.1)",border:"1px solid rgba(46,204,113,.3)",borderRadius:12,padding:"14px 10px",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:4}}>⏰</div><div style={{fontSize:13,fontWeight:600,color:"var(--g)"}}>Clock In/Out</div>
+            </button>
+            <button onClick={()=>setPage&&setPage(isSup?"activity":"my-activity")} style={{background:"rgba(58,155,213,.1)",border:"1px solid rgba(58,155,213,.3)",borderRadius:12,padding:"14px 10px",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:4}}>📋</div><div style={{fontSize:13,fontWeight:600,color:"var(--bl)"}}>Activity Report</div>
+            </button>
+            <button onClick={()=>setPage&&setPage("my-salary")} style={{background:"rgba(201,168,76,.1)",border:"1px solid rgba(201,168,76,.3)",borderRadius:12,padding:"14px 10px",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:4}}>💰</div><div style={{fontSize:13,fontWeight:600,color:"var(--gold)"}}>My Salary</div>
+            </button>
+            <button onClick={()=>setPage&&setPage("attend")} style={{background:"rgba(155,89,182,.1)",border:"1px solid rgba(155,89,182,.3)",borderRadius:12,padding:"14px 10px",cursor:"pointer",textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:4}}>📅</div><div style={{fontSize:13,fontWeight:600,color:"#9b59b6"}}>Attendance</div>
+            </button>
+          </div>
+        </div>
+      </div>
+      {myActs.length>0&&(
+        <div className="card" style={{marginBottom:14}}>
+          <div className="ch"><I n="map" s={16} c="var(--g)"/><div className="ct">Recent Activities</div></div>
+          <div className="cb">
+            {myActs.slice(0,5).map(function(a){
+              return(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--bo)"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600}}>{a.store_name}, {a.city}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{a.brand} · {a.date} · {a.type}</div>
+                  </div>
+                  <div style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:a.approval_status==="approved"?"rgba(46,204,113,.15)":a.approval_status==="rejected"?"rgba(231,76,60,.15)":"rgba(240,165,0,.15)",color:a.approval_status==="approved"?"var(--g)":a.approval_status==="rejected"?"var(--rd)":"var(--or)",border:"1px solid "+(a.approval_status==="approved"?"rgba(46,204,113,.3)":a.approval_status==="rejected"?"rgba(231,76,60,.3)":"rgba(240,165,0,.3)")}}>
+                    {a.approval_status==="approved"?"✅":a.approval_status==="rejected"?"❌":"⏳"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
