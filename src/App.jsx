@@ -468,6 +468,44 @@ function AdminDash({data,toast,setPage}){
   const today=new Date().toISOString().slice(0,10);
   const todayAtt=(data.attendance||[]).filter(a=>a.date===today);
   const activeAlloc=data.allocations.filter(a=>a.active);
+  const thisMonth=today.slice(0,7);
+  const monthActs=(data.activities||[]).filter(a=>a.date&&a.date.startsWith(thisMonth));
+  const totalInterceptions=monthActs.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+  const totalSales=monthActs.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+  const notCheckedIn=activeAlloc.filter(a=>!todayAtt.find(x=>x.user_id===a.user_id)).length;
+
+  const [aiBrief,setAiBrief]=useState("");
+  const [aiLoading,setAiLoading]=useState(false);
+
+  const generateBriefing=async()=>{
+    setAiLoading(true);
+    setAiBrief("");
+    try{
+      const staffNames=staff.map(u=>u.name+"("+u.role+")").join(", ");
+      const stallNames=(data.stalls||[]).map(s=>s.name+","+s.city).join("; ");
+      const prompt="You are a field marketing operations AI for Shinkore Marketing, Abbottabad Pakistan. Generate a professional morning briefing for the admin (Khalid Orakzai, CEO) based on this data:\n"+
+        "Date: "+today+"\n"+
+        "Total Staff: "+staff.length+" ("+staffNames+")\n"+
+        "Active Stalls: "+(data.stalls||[]).length+" ("+stallNames+")\n"+
+        "Checked In Today: "+todayAtt.length+" of "+activeAlloc.length+" allocated staff\n"+
+        "Not Checked In: "+notCheckedIn+" staff\n"+
+        "Today's Activities: "+todayActs.length+"\n"+
+        "Pending Approvals: "+pendingApprovals+"\n"+
+        "High Priority Remarks: "+highRemarks+"\n"+
+        "This Month Activities: "+monthActs.length+"\n"+
+        "This Month Interceptions: "+totalInterceptions+"\n"+
+        "This Month Sales (pcs): "+totalSales+"\n"+
+        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional.";
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+      });
+      const json=await res.json();
+      setAiBrief(json.content?.[0]?.text||"Could not generate briefing.");
+    }catch(e){setAiBrief("Error generating briefing. Check connection.");}
+    setAiLoading(false);
+  };
 
   return(
     <div>
@@ -482,6 +520,22 @@ function AdminDash({data,toast,setPage}){
         {pendingApprovals>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{pendingApprovals}</div><div className="sl">Pending Approvals</div></div>}
         {highRemarks>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{highRemarks}</div><div className="sl">High Priority</div></div>}
       </div>}
+      <div className="card" style={{marginBottom:16,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)"}}>
+        <div className="ch">
+          <div style={{fontSize:22}}>🤖</div>
+          <div style={{flex:1}}><div className="ct" style={{color:"#a78bfa"}}>AI Daily Briefing</div><div className="cs">Powered by Claude AI</div></div>
+          <button onClick={generateBriefing} disabled={aiLoading} style={{background:"linear-gradient(135deg,rgba(139,92,246,.3),rgba(59,130,246,.3))",border:"1px solid rgba(139,92,246,.5)",borderRadius:8,padding:"6px 14px",cursor:"pointer",color:"#a78bfa",fontSize:12,fontWeight:600}}>{aiLoading?"⏳ Generating...":"✨ Generate"}</button>
+        </div>
+        {aiBrief&&<div className="cb">
+          <div style={{fontSize:13,color:"var(--tx)",lineHeight:1.7,marginBottom:10}}>{aiBrief}</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{navigator.clipboard.writeText(aiBrief);toast("Copied!");}} style={{fontSize:11,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
+            <button onClick={()=>sendWA(ADMIN_PHONES[0],"🤖 AI Daily Briefing\n\n"+aiBrief+"\n\n— Shinkore Marketing AI")} style={{fontSize:11,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
+            <button onClick={()=>setAiBrief("")} style={{fontSize:11,background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"var(--rd)"}}>✕</button>
+          </div>
+        </div>}
+        {!aiBrief&&!aiLoading&&<div className="cb" style={{color:"var(--txd)",fontSize:12,textAlign:"center",padding:"8px 0"}}>Tap Generate for your AI morning briefing</div>}
+      </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div className="card">
           <div className="ch" onClick={()=>setPage&&setPage("alloc")} style={{cursor:"pointer"}}><I n="alloc" s={17} c="var(--g)"/><div><div className="ct">Today's Allocations ↗</div><div className="cs">Who is where today</div></div></div>
