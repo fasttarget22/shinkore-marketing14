@@ -389,31 +389,11 @@ function Login({onLogin}){
           <div className="brand-ic">SM</div>
           <div><h1>SHINKORE</h1><p>Marketing Operations</p></div>
         </div>
-        <div className="tab-sw">
-          <button className={`tab-b ${tab==="in"?"active":""}`} onClick={()=>setTab("in")}>Sign In</button>
-          <button className={`tab-b ${tab==="up"?"active":""}`} onClick={()=>setTab("up")}>Sign Up</button>
-        </div>
+        <div style={{textAlign:"center",marginBottom:8,fontSize:12,color:"var(--txd)"}}>Sign in with your phone and PIN provided by admin</div>
         {err&&<div className="info info-err" style={{marginBottom:14}}><I n="alert" s={15}/>{err}</div>}
-        {tab==="in"?(
-          <>
-            <div className="fg"><label className="fl">Phone Number</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Password (Admin only)</label><input className="fi" type="password" placeholder="Admin: password | Staff: PIN" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
+        <div className="fg"><label className="fl">Phone Number</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
+            <div className="fg"><label className="fl">PIN / Password</label><input className="fi" type="password" placeholder="Enter your PIN" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
             <button className="bp" onClick={doIn}>SIGN IN →</button>
-          </>
-        ):(
-          <>
-            <div className="fg"><label className="fl">Full Name</label><input className="fi" placeholder="Your full name" value={f.name} onChange={e=>set("name",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Phone</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Role</label>
-              <select className="fsel" value={f.role} onChange={e=>set("role",e.target.value)}>
-                <option value="ba">Business Ambassador (BA)</option>
-                <option value="supervisor">Supervisor</option>
-              </select>
-            </div>
-            <div className="fg"><label className="fl">Daily Rate (PKR)</label><input className="fi" type="number" placeholder="800" value={f.daily_rate} onChange={e=>set("daily_rate",e.target.value)}/></div>
-            <button className="bp" onClick={doUp}>CREATE ACCOUNT →</button>
-          </>
-        )}
       </div>
     </div>
   );
