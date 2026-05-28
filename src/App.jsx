@@ -2238,6 +2238,9 @@ function MySalaryPage({user,data}){
               <div style={{marginLeft:"auto",textAlign:"right"}}>
                 <div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--g)"}}>{formatPKR(rec.total)}</div>
                 <span className={rec.status==="paid"?"b b-active":"b b-pending"}>{rec.status}</span>
+                <div style={{marginTop:6}}>
+                  <button onClick={()=>{const html=generateSlipHTML(user,rec,data.stalls,data.allocations);openPrint(html);}} style={{fontSize:11,background:"rgba(201,168,76,.1)",border:"1px solid rgba(201,168,76,.3)",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"var(--gold)"}}>📄 PDF Slip</button>
+                </div>
               </div>
             </div>
           ))}
