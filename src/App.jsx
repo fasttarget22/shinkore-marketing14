@@ -479,7 +479,7 @@ function Sidebar({user,page,setPage,open,onClose}){
 }
 
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
-function AdminDash({data,toast}){
+function AdminDash({data,toast,setPage}){
   const todayDate=new Date().toISOString().slice(0,10);
   const todayActs=(data.activities||[]).filter(a=>a.date===todayDate);
   const pendingApprovals=todayActs.filter(a=>a.approval_status==="submitted").length;
@@ -492,15 +492,19 @@ function AdminDash({data,toast}){
   return(
     <div>
       <div className="sg">
-        <div className="sc gold"><div className="si gold"><I n="users" s={18}/></div><div className="sv">{staff.length}</div><div className="sl">Total Staff</div></div>
-        <div className="sc bl"><div className="si bl"><I n="pin" s={18}/></div><div className="sv">{(data.stalls||[]).length}</div><div className="sl">Active Stalls</div></div>
-        <div className="sc gr"><div className="si gr"><I n="alloc" s={18}/></div><div className="sv">{activeAlloc.length}</div><div className="sl">Allocations</div></div>
-        <div className="sc rd"><div className="si rd"><I n="clock" s={18}/></div><div className="sv">{todayAtt.length}</div><div className="sl">Checked In Today</div></div>
+        <div className="sc gold" onClick={()=>setPage&&setPage("staff")} style={{cursor:"pointer"}}><div className="si gold"><I n="users" s={18}/></div><div className="sv">{staff.length}</div><div className="sl">Total Staff</div></div>
+        <div className="sc bl" onClick={()=>setPage&&setPage("stalls")} style={{cursor:"pointer"}}><div className="si bl"><I n="pin" s={18}/></div><div className="sv">{(data.stalls||[]).length}</div><div className="sl">Active Stalls</div></div>
+        <div className="sc gr" onClick={()=>setPage&&setPage("alloc")} style={{cursor:"pointer"}}><div className="si gr"><I n="alloc" s={18}/></div><div className="sv">{activeAlloc.length}</div><div className="sl">Allocations</div></div>
+        <div className="sc rd" onClick={()=>setPage&&setPage("attend")} style={{cursor:"pointer"}}><div className="si rd"><I n="clock" s={18}/></div><div className="sv">{todayAtt.length}</div><div className="sl">Checked In Today</div></div>
       </div>
 
+      {(pendingApprovals>0||highRemarks>0)&&<div className="sg" style={{marginBottom:16}}>
+        {pendingApprovals>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{pendingApprovals}</div><div className="sl">Pending Approvals</div></div>}
+        {highRemarks>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{highRemarks}</div><div className="sl">High Priority</div></div>}
+      </div>}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div className="card">
-          <div className="ch"><I n="alloc" s={17} c="var(--g)"/><div><div className="ct">Today's Allocations</div><div className="cs">Who is where today</div></div></div>
+          <div className="ch" onClick={()=>setPage&&setPage("alloc")} style={{cursor:"pointer"}}><I n="alloc" s={17} c="var(--g)"/><div><div className="ct">Today's Allocations ↗</div><div className="cs">Who is where today</div></div></div>
           <div className="cb">
             {activeAlloc.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No allocations yet.</div>}
             {activeAlloc.slice(0,6).map(a=>{
@@ -526,7 +530,7 @@ function AdminDash({data,toast}){
         </div>
 
         <div className="card">
-          <div className="ch"><I n="pin" s={17} c="var(--bl)"/><div><div className="ct">Active Stalls</div><div className="cs">Running permissions</div></div></div>
+          <div className="ch" onClick={()=>setPage&&setPage("stalls")} style={{cursor:"pointer"}}><I n="pin" s={17} c="var(--bl)"/><div><div className="ct">Active Stalls ↗</div><div className="cs">Running permissions</div></div></div>
           <div className="cb">
             {(data.stalls||[]).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No stalls added yet.</div>}
             {(data.stalls||[]).map(s=>{
@@ -3674,7 +3678,7 @@ export default function App(){
   const render=()=>{
     if(isAdmin){
       switch(page){
-        case "dash": return <AdminDash data={data} toast={toast}/>;
+        case "dash": return <AdminDash data={data} toast={toast} setPage={setPage}/>;
         case "staff": return <StaffPage data={data} setData={setData} toast={toast}/>;
         case "stalls": return <StallsPage data={data} setData={setData} toast={toast}/>;
         case "alloc": return <AllocPage data={data} setData={setData} toast={toast}/>;
