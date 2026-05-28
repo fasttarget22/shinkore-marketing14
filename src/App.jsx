@@ -1,10 +1,38 @@
 import { useState, useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable_hPu0RIbvCd_DBCM4s2lH2g_U6CONZdr");
+const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return;try{await SB.from(table).upsert(rows,{onConflict:"id"});}catch(e){console.log("SB error",e);}};
+const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "Khalid";
 const COMPANY = "Shinkore Marketing";
 const ADMIN_PHONES = ["00923135443656", "00923174886655"];
-const GPS_RADIUS_M = 50;
+const GPS_RADIUS_M = 200;
+const sendDailySummary=(data)=>{
+  const today=new Date().toISOString().slice(0,10);
+  const todayActs=(data.activities||[]).filter(a=>a.date===today);
+  const submitted=todayActs.filter(a=>a.approval_status==="submitted").length;
+  const approved=todayActs.filter(a=>a.approval_status==="approved").length;
+  const highRemarks=todayActs.filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
+  const totalKg=todayActs.reduce((s,a)=>s+Number(a.total_kg||0),0);
+  const totalPcs=todayActs.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+  const totalInterceptions=todayActs.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+  const msg="📊 *Shinkore Marketing — Daily Summary*\n"
+    +"Date: "+today+"\n\n"
+    +"✅ Approved: "+approved+"\n"
+    +"⏳ Pending Approval: "+submitted+"\n"
+    +"📋 Total Activities: "+todayActs.length+"\n\n"
+    +"📈 *Today's Performance*\n"
+    +"Interceptions: "+totalInterceptions+"\n"
+    +"Sales KG: "+totalKg+" kg\n"
+    +"Sales PCs: "+totalPcs+" pcs\n\n"
+    +(highRemarks>0?"🔴 High Priority Remarks: "+highRemarks+"\n\n":"")
+    +"— Shinkore Marketing System";
+  ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
+};
+const IMGBB_KEY="23d6b85fb8d0698b3bf3ec4d4c5deb22";
+const uploadPhoto=async(file)=>{const fd=new FormData();fd.append("image",file);fd.append("key",IMGBB_KEY);try{const r=await fetch("https://api.imgbb.com/1/upload",{method:"POST",body:fd});const d=await r.json();if(d.success)return{url:d.data.url,thumb:d.data.thumb.url};return null;}catch{return null;}};
 
 // ─── DATA INIT ────────────────────────────────────────────────────────────────
 const initData = () => {
@@ -12,30 +40,46 @@ const initData = () => {
   if (d) return JSON.parse(d);
   return {
     users: [
-      { id:"u1", name:"Khalid Orakzai", phone:"00923135443656", role:"admin", daily_rate:0, team:"", callmebot_key:"" },
-      { id:"u2", name:"Ahmed Khan",     phone:"03001234567",    role:"supervisor", daily_rate:1500, team:"Team A", callmebot_key:"" },
-      { id:"u3", name:"Sara Bibi",      phone:"03009876543",    role:"ba",         daily_rate:800,  team:"Team A", callmebot_key:"" },
-      { id:"u4", name:"Usman Ali",      phone:"03123456789",    role:"ba",         daily_rate:800,  team:"Team B", callmebot_key:"" },
-      { id:"u5", name:"Nadia Shah",     phone:"03456789012",    role:"supervisor", daily_rate:1500, team:"Team B", callmebot_key:"" },
+      { id:"u1", name:"Khalid Orakzai", phone:"00923135443656", role:"admin", daily_rate:0, team:"", callmebot_key:"", pin:"" },
+      { id:"u2", name:"Khan", phone:"03001111111", role:"supervisor", daily_rate:1500, team:"Team A", callmebot_key:"", pin:"123" },
+      { id:"u3", name:"Muna", phone:"03002222222", role:"ba", daily_rate:800, team:"Team A", callmebot_key:"", pin:"123" },
     ],
-    teams: ["Team A","Team B"],
-    stalls: [
-      { id:"s1", name:"Centaurus Mall Stall", city:"Islamabad", dept:"PEMRA", lat:33.7294, lng:73.0931, from_date:"2025-05-01", to_date:"2025-05-31", client:"Telenor", client_charged:50000, duty_start:"09:00" },
-    ],
-    allocations: [
-      { id:"a1", stall_id:"s1", user_id:"u3", duty_start:"09:00", daily_rate:800, from_date:"2025-05-01", to_date:"2025-05-31", active:true },
-      { id:"a2", stall_id:"s1", user_id:"u2", duty_start:"09:00", daily_rate:1500, from_date:"2025-05-01", to_date:"2025-05-31", active:true },
-    ],
+    teams: [],
+    stalls: [],
+    allocations: [],
     attendance: [],
     client_payments: [],
     handovers: [],
     expenses: [],
     salary: [],
+    personal: [],
+    activity_photos: [],
+    stock_items: [],
+    remarks: [],
+    targets: [],
+    activities: [],
+    remarks: [],
+    stock_items: [],
+    clients: [{id:"c1",name:"Shahadat",brand:"Brite",phone:"03001234999",email:"",pin:"1234",active:true}],
+    daily_plans: [],
+    targets: [],
+    activity_photos: [],
     callmebot: { admin1:"", admin2:"" },
-    sheets_url: "",
+    sheets_url: "", csv_exported: false,
   };
 };
-const save = (d) => localStorage.setItem("shinkore_v2", JSON.stringify(d));
+const save = (d) => {
+  localStorage.setItem("shinkore_v2", JSON.stringify(d));
+  pushToSB("sm_users", d.users||[]);
+  pushToSB("sm_stalls", d.stalls||[]);
+  pushToSB("sm_allocations", d.allocations||[]);
+  pushToSB("sm_attendance", d.attendance||[]);
+  pushToSB("sm_client_payments", d.client_payments||[]);
+  pushToSB("sm_handovers", d.handovers||[]);
+  pushToSB("sm_expenses", d.expenses||[]);
+  pushToSB("sm_salary", d.salary||[]);
+  pushToSB("sm_personal", d.personal||[]);
+};
 const genId = () => Math.random().toString(36).slice(2,10);
 const formatPKR = (n) => `PKR ${Number(n||0).toLocaleString()}`;
 const getInitials = (n) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "?";
@@ -317,18 +361,25 @@ function Login({onLogin}){
 
   const doIn=()=>{
     setErr("");
-    const u=data.users.find(x=>x.phone===f.phone);
+    const u=(data.users||[]).find(x=>x.phone===f.phone);
+    const cl=(data.clients||[]).find(x=>x.phone===f.phone);
+    if(cl){
+      if(f.pass!==cl.pin) return setErr("Wrong PIN.");
+      onLogin({...cl,role:"client"});
+      return;
+    }
     if(!u) return setErr("Phone not found. Ask admin to register you.");
     if(u.role==="admin"&&f.pass!==ADMIN_PASSWORD) return setErr("Wrong admin password.");
+    if(u.role!=="admin"&&u.pin&&f.pass!==u.pin) return setErr("Wrong PIN. Contact admin if forgotten.");
     onLogin(u);
   };
 
   const doUp=()=>{
     setErr("");
     if(!f.name||!f.phone) return setErr("Name and phone required.");
-    if(data.users.find(u=>u.phone===f.phone)) return setErr("Phone already registered.");
+    if((data.users||[]).find(u=>u.phone===f.phone)) return setErr("Phone already registered.");
     const nu={id:genId(),name:f.name,phone:f.phone,role:f.role,daily_rate:Number(f.daily_rate)||0,team:"",callmebot_key:""};
-    data.users.push(nu); save(data); onLogin(nu);
+    (data.users||[]).push(nu); save(data); onLogin(nu);
   };
 
   return(
@@ -346,7 +397,7 @@ function Login({onLogin}){
         {tab==="in"?(
           <>
             <div className="fg"><label className="fl">Phone Number</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Password (Admin only)</label><input className="fi" type="password" placeholder="Staff leave blank" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Password (Admin only)</label><input className="fi" type="password" placeholder="Admin: password | Staff: PIN" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
             <button className="bp" onClick={doIn}>SIGN IN →</button>
           </>
         ):(
@@ -382,20 +433,29 @@ function Sidebar({user,page,setPage,open,onClose}){
     {id:"alerts",icon:"alert",label:"Late Alerts"},
     {id:"sync",icon:"sync",label:"Google Sheets Sync"},
     {id:"apk",icon:"apk",label:"Install APK / PWA"},
+    {id:"personal",icon:"money",label:"Personal Finance"},
+    {id:"activity",icon:"map",label:"Activity Reports"},
+    {id:"daily_plan",icon:"cal",label:"Daily Plans"},
+    {id:"clients",icon:"users",label:"Clients"},
+    {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},,
   ];
   const staffNav=[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
+    {id:"my-activity",icon:"map",label:"My Activities"},
   ];
-  const nav=isAdmin?adminNav:staffNav;
+  const clientNav=[
+    {id:"client_dash",icon:"dash",label:"My Dashboard"},
+  ];
+  const nav=isAdmin?adminNav:user.role==="client"?clientNav:staffNav;
   return(
     <>
       <div className={`ov ${open?"show":""}`} onClick={onClose}/>
       <aside className={`sb ${open?"open":""}`}>
         <div className="sb-brand">
-          <div className="sb-icon">SM</div>
+          <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" style={{width:42,height:42,borderRadius:8,objectFit:"cover"}}/>
           <div><div className="sb-title">SHINKORE</div><div className="sb-sub">Marketing Ops</div></div>
         </div>
         <nav className="sb-nav">
@@ -418,17 +478,21 @@ function Sidebar({user,page,setPage,open,onClose}){
 }
 
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
-function AdminDash({data}){
-  const staff=data.users.filter(u=>u.role!=="admin");
+function AdminDash({data,toast}){
+  const todayDate=new Date().toISOString().slice(0,10);
+  const todayActs=(data.activities||[]).filter(a=>a.date===todayDate);
+  const pendingApprovals=todayActs.filter(a=>a.approval_status==="submitted").length;
+  const highRemarks=(data.activities||[]).filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
+  const staff=(data.users||[]).filter(u=>u.role!=="admin");
   const today=new Date().toISOString().slice(0,10);
-  const todayAtt=data.attendance.filter(a=>a.date===today);
+  const todayAtt=(data.attendance||[]).filter(a=>a.date===today);
   const activeAlloc=data.allocations.filter(a=>a.active);
 
   return(
     <div>
       <div className="sg">
         <div className="sc gold"><div className="si gold"><I n="users" s={18}/></div><div className="sv">{staff.length}</div><div className="sl">Total Staff</div></div>
-        <div className="sc bl"><div className="si bl"><I n="pin" s={18}/></div><div className="sv">{data.stalls.length}</div><div className="sl">Active Stalls</div></div>
+        <div className="sc bl"><div className="si bl"><I n="pin" s={18}/></div><div className="sv">{(data.stalls||[]).length}</div><div className="sl">Active Stalls</div></div>
         <div className="sc gr"><div className="si gr"><I n="alloc" s={18}/></div><div className="sv">{activeAlloc.length}</div><div className="sl">Allocations</div></div>
         <div className="sc rd"><div className="si rd"><I n="clock" s={18}/></div><div className="sv">{todayAtt.length}</div><div className="sl">Checked In Today</div></div>
       </div>
@@ -439,8 +503,8 @@ function AdminDash({data}){
           <div className="cb">
             {activeAlloc.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No allocations yet.</div>}
             {activeAlloc.slice(0,6).map(a=>{
-              const u=data.users.find(x=>x.id===a.user_id);
-              const s=data.stalls.find(x=>x.id===a.stall_id);
+              const u=(data.users||[]).find(x=>x.id===a.user_id);
+              const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
               if(!u||!s) return null;
               const att=todayAtt.find(x=>x.user_id===a.user_id&&x.stall_id===a.stall_id);
               return(
@@ -463,8 +527,8 @@ function AdminDash({data}){
         <div className="card">
           <div className="ch"><I n="pin" s={17} c="var(--bl)"/><div><div className="ct">Active Stalls</div><div className="cs">Running permissions</div></div></div>
           <div className="cb">
-            {data.stalls.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No stalls added yet.</div>}
-            {data.stalls.map(s=>{
+            {(data.stalls||[]).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No stalls added yet.</div>}
+            {(data.stalls||[]).map(s=>{
               const assigned=data.allocations.filter(a=>a.stall_id===s.id&&a.active).length;
               return(
                 <div key={s.id} style={{padding:"10px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
@@ -490,7 +554,7 @@ function StaffPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
   const [search,setSearch]=useState("");
-  const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});
+  const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:"",paid_by:"admin"});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const openAdd=()=>{setEditing(null);setF({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});setShow(true)};
@@ -509,7 +573,7 @@ function StaffPage({data,setData,toast}){
 
   const doDel=(u)=>{
     if(!confirm(`Delete ${u.name}?`)) return;
-    const d={...data,users:data.users.filter(x=>x.id!==u.id)};
+    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id)};
     setData(d);save(d);toast("Removed.");
   };
 
@@ -520,7 +584,7 @@ function StaffPage({data,setData,toast}){
     setData(d);save(d);toast(`Team "${name}" created!`);
   };
 
-  const list=data.users.filter(u=>u.role!=="admin"&&(u.name.toLowerCase().includes(search.toLowerCase())||u.phone.includes(search)));
+  const list=(data.users||[]).filter(u=>u.role!=="admin"&&(u.name.toLowerCase().includes(search.toLowerCase())||u.phone.includes(search)));
 
   return(
     <div>
@@ -585,6 +649,8 @@ function StaffPage({data,setData,toast}){
                 </div>
                 <div className="fg"><label className="fl">Daily Rate (PKR)</label><input className="fi" type="number" value={f.daily_rate} onChange={e=>set("daily_rate",e.target.value)}/></div>
               </div>
+              <div className="fg"><label className="fl">PIN (4 digit password)</label><input className="fi" type="password" value={f.pin||""} onChange={e=>set("pin",e.target.value)} placeholder="e.g. 1234"/></div>
+              <div className="fg"><label className="fl">Salary Paid By (Default)</label><select className="fsel" value={f.paid_by||"admin"} onChange={e=>set("paid_by",e.target.value)}><option value="admin">Shinkore / Admin</option><option value="client">Client</option><option value="both">Both (Split)</option></select></div>
               <div className="fg"><label className="fl">Assign Team</label>
                 <select className="fsel" value={f.team} onChange={e=>set("team",e.target.value)}>
                   <option value="">-- Unassigned --</option>
@@ -611,8 +677,10 @@ function StaffPage({data,setData,toast}){
 function StallsPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [f,setF]=useState({name:"",city:"",dept:"",lat:"",lng:"",from_date:"",to_date:"",client:"",client_charged:"",duty_start:"09:00"});
+  const emptyF={name:"",city:"",dept:"",focal_name:"",focal_mob:"",lat:"",lng:"",from_date:"",to_date:"",num_days:"",client:"",duty_start:"09:00",perm_cost:"",perm_charged:"",ba_cost:"",ba_charged:"",sup_cost:"",sup_charged:"",other_cost:"",other_charged:"",notes:""};
+  const [f,setF]=useState(emptyF);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const calc=(fm)=>{const d=Number(fm.num_days)||1;const tc=(Number(fm.perm_charged)||0)+(Number(fm.ba_charged)||0)*d+(Number(fm.sup_charged)||0)*d+(Number(fm.other_charged)||0);const tx=(Number(fm.perm_cost)||0)+(Number(fm.ba_cost)||0)*d+(Number(fm.sup_cost)||0)*d+(Number(fm.other_cost)||0);return{tc,tx,profit:tc-tx};};
 
   const getMyLoc=()=>{
     if(!navigator.geolocation) return toast("GPS not available");
@@ -623,20 +691,26 @@ function StallsPage({data,setData,toast}){
     },()=>toast("GPS denied."));
   };
 
-  const openAdd=()=>{setEditing(null);setF({name:"",city:"",dept:"",lat:"",lng:"",from_date:"",to_date:"",client:"",client_charged:"",duty_start:"09:00"});setShow(true)};
-  const openEdit=(s)=>{setEditing(s);setF({...s});setShow(true)};
+  const openAdd=()=>{setEditing(null);setF(emptyF);setShow(true)};
+  const openEdit=(s)=>{setEditing(s);setF({...emptyF,...s});setShow(true)};
 
   const doSave=()=>{
     if(!f.name||!f.city||!f.lat||!f.lng) return toast("Name, city and GPS required.");
+    const{tc,tx,profit}=calc(f);
+    const sid=editing?editing.id:genId();
+    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0};
     const d={...data};
-    if(editing) d.stalls=d.stalls.map(s=>s.id===editing.id?{...s,...f,client_charged:Number(f.client_charged)}:s);
-    else d.stalls.push({id:genId(),...f,client_charged:Number(f.client_charged)});
-    setData(d);save(d);setShow(false);toast(editing?"Stall updated!":"Stall added!");
+    if(editing) d.stalls=d.stalls.map(s=>s.id===editing.id?{...s,...sd}:s);
+    else{
+      d.stalls.push(sd);
+      if(tc>0) d.client_payments.push({id:genId(),stall_id:sid,amount:tc,activity:"Stall: "+f.name,date:f.from_date||new Date().toISOString().slice(0,10),status:"pending",notes:"Auto: Permission "+formatPKR(Number(f.perm_charged)||0)+" + BA "+formatPKR((Number(f.ba_charged)||0)*Number(f.num_days||1))+" + Sup "+formatPKR((Number(f.sup_charged)||0)*Number(f.num_days||1))});
+    }
+    setData(d);save(d);setShow(false);toast(editing?"Stall updated!":"Stall added + billing created!");
   };
 
   const doDel=(s)=>{
     if(!confirm(`Delete stall "${s.name}"?`)) return;
-    const d={...data,stalls:data.stalls.filter(x=>x.id!==s.id)};
+    const d={...data,stalls:(data.stalls||[]).filter(x=>x.id!==s.id)};
     setData(d);save(d);toast("Stall removed.");
   };
 
@@ -645,12 +719,12 @@ function StallsPage({data,setData,toast}){
       <div className="card">
         <div className="ch">
           <I n="pin" s={17} c="var(--g)"/>
-          <div style={{flex:1}}><div className="ct">Permission Stalls</div><div className="cs">{data.stalls.length} stalls</div></div>
+          <div style={{flex:1}}><div className="ct">Permission Stalls</div><div className="cs">{(data.stalls||[]).length} stalls</div></div>
           <button className="bg" onClick={openAdd}><I n="plus" s={15}/>Add Stall</button>
         </div>
         <div className="cb">
-          {data.stalls.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"var(--txd)"}}>No stalls yet. Add your first permission stall.</div>}
-          {data.stalls.map(s=>{
+          {(data.stalls||[]).length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"var(--txd)"}}>No stalls yet. Add your first permission stall.</div>}
+          {(data.stalls||[]).map(s=>{
             const assigned=data.allocations.filter(a=>a.stall_id===s.id&&a.active);
             return(
               <div className="stallc" key={s.id}>
@@ -675,7 +749,7 @@ function StallsPage({data,setData,toast}){
                   <span style={{fontSize:12,color:"var(--txd)"}}>Assigned:</span>
                   {assigned.length===0&&<span style={{fontSize:12,color:"var(--txd)"}}>No staff yet</span>}
                   {assigned.map(a=>{
-                    const u=data.users.find(x=>x.id===a.user_id);
+                    const u=(data.users||[]).find(x=>x.id===a.user_id);
                     return u?<span key={a.id} style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:20,padding:"2px 10px",fontSize:12,color:"var(--gl)"}}>{u.name}</span>:null;
                   })}
                 </div>
@@ -703,18 +777,50 @@ function StallsPage({data,setData,toast}){
                 <div className="fg"><label className="fl">Permission To</label><input className="fi" type="date" value={f.to_date} onChange={e=>set("to_date",e.target.value)}/></div>
               </div>
               <div className="frow">
-                <div className="fg"><label className="fl">Client Charged (PKR)</label><input className="fi" type="number" value={f.client_charged} onChange={e=>set("client_charged",e.target.value)}/></div>
                 <div className="fg"><label className="fl">Duty Start Time</label><input className="fi" type="time" value={f.duty_start} onChange={e=>set("duty_start",e.target.value)}/></div>
+                <div className="fg"><label className="fl">Number of Days</label><input className="fi" type="number" value={f.num_days} onChange={e=>set("num_days",e.target.value)} placeholder="e.g. 30"/></div>
               </div>
-              <div className="fg">
-                <label className="fl">GPS Coordinates</label>
+              <div className="fg"><label className="fl">GPS Coordinates</label>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
                   <input className="fi" placeholder="Latitude" value={f.lat} onChange={e=>set("lat",e.target.value)} style={{flex:1}}/>
                   <input className="fi" placeholder="Longitude" value={f.lng} onChange={e=>set("lng",e.target.value)} style={{flex:1}}/>
                 </div>
                 <button className="bg" onClick={getMyLoc} style={{width:"100%",justifyContent:"center"}}><I n="gps" s={14}/>Capture My Location</button>
-                <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>Go to the stall location and press above, OR enter coordinates manually from Google Maps.</div>
               </div>
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>🏛️ Permission Details</div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Focal Person (optional)</label><input className="fi" value={f.focal_name} onChange={e=>set("focal_name",e.target.value)} placeholder="Name"/></div>
+                  <div className="fg"><label className="fl">Focal Mobile (optional)</label><input className="fi" value={f.focal_mob} onChange={e=>set("focal_mob",e.target.value)} placeholder="03001234567"/></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Permission — You Pay (PKR)</label><input className="fi" type="number" value={f.perm_cost} onChange={e=>set("perm_cost",e.target.value)} placeholder="5000"/></div>
+                  <div className="fg"><label className="fl">Permission — Charge Client (PKR)</label><input className="fi" type="number" value={f.perm_charged} onChange={e=>set("perm_charged",e.target.value)} placeholder="10000"/></div>
+                </div>
+              </div>
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>👥 Staff Rates (Per Day)</div>
+                <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>Business Ambassador</div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">BA — You Pay/Day</label><input className="fi" type="number" value={f.ba_cost} onChange={e=>set("ba_cost",e.target.value)} placeholder="800"/></div>
+                  <div className="fg"><label className="fl">BA — Charge Client/Day</label><input className="fi" type="number" value={f.ba_charged} onChange={e=>set("ba_charged",e.target.value)} placeholder="1000"/></div>
+                </div>
+                <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>Supervisor</div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Supervisor — You Pay/Day</label><input className="fi" type="number" value={f.sup_cost} onChange={e=>set("sup_cost",e.target.value)} placeholder="1500"/></div>
+                  <div className="fg"><label className="fl">Supervisor — Charge Client/Day</label><input className="fi" type="number" value={f.sup_charged} onChange={e=>set("sup_charged",e.target.value)} placeholder="2000"/></div>
+                </div>
+              </div>
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>💼 Other Charges (Optional)</div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Other — You Pay</label><input className="fi" type="number" value={f.other_cost} onChange={e=>set("other_cost",e.target.value)} placeholder="0"/></div>
+                  <div className="fg"><label className="fl">Other — Charge Client</label><input className="fi" type="number" value={f.other_charged} onChange={e=>set("other_charged",e.target.value)} placeholder="0"/></div>
+                </div>
+                <div className="fg"><label className="fl">Notes (Optional)</label><input className="fi" value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Any extra info"/></div>
+              </div>
+              {f.num_days?(()=>{const{tc,tx,profit}=calc(f);return(<div style={{background:"var(--d1)",border:"1px solid var(--g)",borderRadius:10,padding:"14px",marginBottom:10}}><div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>📊 Live Profit ({f.num_days} days)</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}><div><div style={{fontSize:10,color:"var(--txd)"}}>Total Invoice</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--g)"}}>{formatPKR(tc)}</div></div><div><div style={{fontSize:10,color:"var(--txd)"}}>Your Cost</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--rd)"}}>{formatPKR(tx)}</div></div><div><div style={{fontSize:10,color:"var(--txd)"}}>Net Profit</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:profit>=0?"var(--gr)":"var(--rd)"}}>{formatPKR(profit)}</div></div></div></div>);})():null}
+              <div className="info info-blue" style={{marginBottom:10}}><I n="money" s={13}/>Adding stall auto-creates billing record in Cash & Finance</div>
               <div className="ma">
                 <button className="bs" onClick={()=>setShow(false)}>Cancel</button>
                 <button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save":"Add Stall"}</button>
@@ -730,10 +836,23 @@ function StallsPage({data,setData,toast}){
 // ─── ALLOCATIONS PAGE ─────────────────────────────────────────────────────────
 function AllocPage({data,setData,toast}){
   const [show,setShow]=useState(false);
-  const [f,setF]=useState({stall_id:"",user_id:"",duty_start:"09:00",daily_rate:"",from_date:"",to_date:""});
+  const [f,setF]=useState({stall_id:"",user_id:"",duty_start:"09:00",daily_rate:"",from_date:"",to_date:"",paid_by:"admin"});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
-
-  const nonAdmin=data.users.filter(u=>u.role!=="admin");
+  const onStallChange=(sid)=>{
+    set("stall_id",sid);
+    const stall=(data.stalls||[]).find(s=>s.id===sid);
+    const u=(data.users||[]).find(x=>x.id===f.user_id);
+    if(stall&&u){
+      if(u.role==="ba"&&stall.ba_cost) set("daily_rate",stall.ba_cost);
+      else if(u.role==="supervisor"&&stall.sup_cost) set("daily_rate",stall.sup_cost);
+    }
+    if(stall){
+      if(stall.from_date) set("from_date",stall.from_date);
+      if(stall.to_date) set("to_date",stall.to_date);
+      set("duty_start",stall.duty_start||"09:00");
+    }
+  };
+  const nonAdmin=(data.users||[]).filter(u=>u.role!=="admin");
 
   const openAdd=()=>{
     setF({stall_id:data.stalls[0]?.id||"",user_id:nonAdmin[0]?.id||"",duty_start:"09:00",daily_rate:"",from_date:new Date().toISOString().slice(0,10),to_date:""});
@@ -741,7 +860,7 @@ function AllocPage({data,setData,toast}){
   };
 
   const onStaffChange=(uid)=>{
-    const u=data.users.find(x=>x.id===uid);
+    const u=(data.users||[]).find(x=>x.id===uid);
     set("user_id",uid);
     if(u) set("daily_rate",u.daily_rate);
   };
@@ -771,14 +890,14 @@ function AllocPage({data,setData,toast}){
         <div className="ch">
           <I n="alloc" s={17} c="var(--g)"/>
           <div style={{flex:1}}><div className="ct">Active Allocations</div><div className="cs">{active.length} active</div></div>
-          <button className="bg" onClick={openAdd} disabled={data.stalls.length===0||nonAdmin.length===0}><I n="plus" s={15}/>Allocate Staff</button>
+          <button className="bg" onClick={openAdd} disabled={(data.stalls||[]).length===0||nonAdmin.length===0}><I n="plus" s={15}/>Allocate Staff</button>
         </div>
         <div className="cb">
-          {data.stalls.length===0&&<div className="info info-warn"><I n="alert" s={14}/>Add stalls first before allocating staff.</div>}
-          {active.length===0&&data.stalls.length>0&&<div style={{color:"var(--txd)",fontSize:13}}>No active allocations. Press "Allocate Staff" to assign.</div>}
+          {(data.stalls||[]).length===0&&<div className="info info-warn"><I n="alert" s={14}/>Add stalls first before allocating staff.</div>}
+          {active.length===0&&(data.stalls||[]).length>0&&<div style={{color:"var(--txd)",fontSize:13}}>No active allocations. Press "Allocate Staff" to assign.</div>}
           {active.map(a=>{
-            const u=data.users.find(x=>x.id===a.user_id);
-            const s=data.stalls.find(x=>x.id===a.stall_id);
+            const u=(data.users||[]).find(x=>x.id===a.user_id);
+            const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
             if(!u||!s) return null;
             return(
               <div className="alc" key={a.id}>
@@ -813,8 +932,8 @@ function AllocPage({data,setData,toast}){
           <div className="ch"><I n="cal" s={17} c="var(--txd)"/><div className="ct" style={{color:"var(--txd)"}}>Past Allocations</div></div>
           <div className="cb">
             {ended.map(a=>{
-              const u=data.users.find(x=>x.id===a.user_id);
-              const s=data.stalls.find(x=>x.id===a.stall_id);
+              const u=(data.users||[]).find(x=>x.id===a.user_id);
+              const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
               if(!u||!s) return null;
               return(
                 <div key={a.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid rgba(201,168,76,.06)",opacity:.6}}>
@@ -841,9 +960,9 @@ function AllocPage({data,setData,toast}){
                 </select>
               </div>
               <div className="fg"><label className="fl">Select Stall / Location</label>
-                <select className="fsel" value={f.stall_id} onChange={e=>set("stall_id",e.target.value)}>
+                <select className="fsel" value={f.stall_id} onChange={e=>onStallChange(e.target.value)}>
                   <option value="">-- Select stall --</option>
-                  {data.stalls.map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
+                  {(data.stalls||[]).map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
                 </select>
               </div>
               <div className="frow">
@@ -880,7 +999,7 @@ function ClockPage({user,data,setData,toast}){
   },[]);
 
   const myAllocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
-  const todayAtt=data.attendance.filter(a=>a.user_id===user.id&&a.date===today);
+  const todayAtt=(data.attendance||[]).filter(a=>a.user_id===user.id&&a.date===today);
 
   const getGPS=()=>{
     setGpsErr(""); setLoading(true);
@@ -893,7 +1012,7 @@ function ClockPage({user,data,setData,toast}){
 
   const doClockIn=(alloc)=>{
     if(!gps) return toast("Capture GPS first!");
-    const stall=data.stalls.find(s=>s.id===alloc.stall_id);
+    const stall=(data.stalls||[]).find(s=>s.id===alloc.stall_id);
     if(!stall) return toast("Stall not found.");
     const dist=haversine(gps.lat,gps.lng,Number(stall.lat),Number(stall.lng));
 
@@ -916,7 +1035,7 @@ function ClockPage({user,data,setData,toast}){
 
   const doClockOut=(att)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
-    const d={...data,attendance:data.attendance.map(a=>a.id===att.id?{...a,clock_out:now}:a)};
+    const d={...data,attendance:(data.attendance||[]).map(a=>a.id===att.id?{...a,clock_out:now}:a)};
     setData(d);save(d);toast(`Clocked out — ${now}`);
   };
 
@@ -942,7 +1061,7 @@ function ClockPage({user,data,setData,toast}){
       )}
 
       {myAllocs.map(alloc=>{
-        const stall=data.stalls.find(s=>s.id===alloc.stall_id);
+        const stall=(data.stalls||[]).find(s=>s.id===alloc.stall_id);
         if(!stall) return null;
         const att=todayAtt.find(a=>a.stall_id===alloc.stall_id);
         return(
@@ -984,14 +1103,14 @@ function ClockPage({user,data,setData,toast}){
 // ─── ATTENDANCE (ADMIN) ───────────────────────────────────────────────────────
 function AttendancePage({data,setData,toast}){
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
-  const dayAtt=data.attendance.filter(a=>a.date===date);
+  const dayAtt=(data.attendance||[]).filter(a=>a.date===date);
 
   const sendLateAlert=(u,stall)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
     const alloc=data.allocations.find(a=>a.user_id===u.id&&a.stall_id===stall.id&&a.active);
     const team=u.team||"Unassigned";
-    const supId=data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&data.users.find(x=>x.id===a.user_id&&x.role==="supervisor"));
-    const sup=supId?data.users.find(x=>x.id===supId.user_id):null;
+    const supId=data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&(data.users||[]).find(x=>x.id===a.user_id&&x.role==="supervisor"));
+    const sup=supId?(data.users||[]).find(x=>x.id===supId.user_id):null;
     const msg=buildLateMsg(u.name,u.role,stall.name,stall.city,team,alloc?.duty_start||"—",date);
     ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
     if(sup) sendWA(sup.phone,msg);
@@ -1012,8 +1131,8 @@ function AttendancePage({data,setData,toast}){
         <div className="cb">
           {allocs.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No allocations found.</div>}
           {allocs.map(a=>{
-            const u=data.users.find(x=>x.id===a.user_id);
-            const s=data.stalls.find(x=>x.id===a.stall_id);
+            const u=(data.users||[]).find(x=>x.id===a.user_id);
+            const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
             if(!u||!s) return null;
             const att=dayAtt.find(x=>x.user_id===a.user_id&&x.stall_id===a.stall_id);
             return(
@@ -1053,9 +1172,9 @@ function AlertsPage({data,toast}){
   const sendManualLate=(u)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
     const alloc=data.allocations.find(a=>a.user_id===u.id&&a.active);
-    const stall=alloc?data.stalls.find(s=>s.id===alloc.stall_id):null;
-    const supAlloc=stall?data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&data.users.find(x=>x.id===a.user_id&&x.role==="supervisor")):null;
-    const sup=supAlloc?data.users.find(x=>x.id===supAlloc.user_id):null;
+    const stall=alloc?(data.stalls||[]).find(s=>s.id===alloc.stall_id):null;
+    const supAlloc=stall?data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&(data.users||[]).find(x=>x.id===a.user_id&&x.role==="supervisor")):null;
+    const sup=supAlloc?(data.users||[]).find(x=>x.id===supAlloc.user_id):null;
     const msg=buildLateMsg(u.name,u.role,stall?.name||"Assigned Location",stall?.city||"",u.team||"Unassigned",alloc?.duty_start||now,today);
     ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
     if(sup) sendWA(sup.phone,msg);
@@ -1071,9 +1190,9 @@ function AlertsPage({data,toast}){
       <div className="card">
         <div className="ch"><I n="alert" s={17} c="var(--rd)"/><div className="ct">Manual Late Alert</div></div>
         <div className="cb">
-          {data.users.filter(u=>u.role!=="admin").map(u=>{
+          {(data.users||[]).filter(u=>u.role!=="admin").map(u=>{
             const alloc=data.allocations.find(a=>a.user_id===u.id&&a.active);
-            const stall=alloc?data.stalls.find(s=>s.id===alloc.stall_id):null;
+            const stall=alloc?(data.stalls||[]).find(s=>s.id===alloc.stall_id):null;
             return(
               <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
                 <div className={`av ${avatarClass(u.role)}`} style={{width:36,height:36,fontSize:13,borderRadius:8}}>{getInitials(u.name)}</div>
@@ -1149,9 +1268,10 @@ function SettingsPage({data,setData,toast}){
 
 // ─── STAFF MY DASH ────────────────────────────────────────────────────────────
 function MyDash({user,data}){
-  const allocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
   const today=new Date().toISOString().slice(0,10);
-  const myAtt=data.attendance.filter(a=>a.user_id===user.id);
+  const myPlans=(data.daily_plans||[]).filter(p=>p.ba_id===user.id&&p.date===today);
+  const allocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
+  const myAtt=(data.attendance||[]).filter(a=>a.user_id===user.id);
   const daysWorked=new Set(myAtt.map(a=>a.date)).size;
   return(
     <div>
@@ -1176,8 +1296,8 @@ function MyDash({user,data}){
         <div className="sc gold"><div className="si gold"><I n="money" s={16}/></div><div className="sv">{formatPKR(daysWorked*(user.daily_rate||0))}</div><div className="sl" style={{fontSize:9}}>Earned (est.)</div></div>
       </div>
       {allocs.map(a=>{
-        const s=data.stalls.find(x=>x.id===a.stall_id);
-        const att=data.attendance.find(x=>x.user_id===user.id&&x.stall_id===a.stall_id&&x.date===today);
+        const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
+        const att=(data.attendance||[]).find(x=>x.user_id===user.id&&x.stall_id===a.stall_id&&x.date===today);
         return s?(
           <div className="card" key={a.id}>
             <div className="ch"><I n="pin" s={16} c="var(--g)"/><div><div className="ct">{s.name}</div><div className="cs">{s.city} · Duty at {a.duty_start}</div></div></div>
@@ -1203,7 +1323,7 @@ function CashPage({data,setData,toast}){
 
   // HANDOVER STATE
   const [showHO,setShowHO]=useState(false);
-  const [hof,setHof]=useState({supervisor_id:"",stall_id:"",amount_given:"",date_given:new Date().toISOString().slice(0,10),notes:""});
+  const [hof,setHof]=useState({supervisor_id:"",stall_id:"",activity_id:"",amount_given:"",date_given:new Date().toISOString().slice(0,10),notes:""});
 
   // EXPENSE STATE
   const [showEX,setShowEX]=useState(false);
@@ -1218,15 +1338,17 @@ function CashPage({data,setData,toast}){
   const sho=(k,v)=>setHof(p=>({...p,[k]:v}));
   const sex=(k,v)=>setExf(p=>({...p,[k]:v}));
 
-  const supervisors=data.users.filter(u=>u.role==="supervisor");
-  const nonAdmin=data.users.filter(u=>u.role!=="admin");
+  const supervisors=(data.users||[]).filter(u=>u.role==="supervisor");
+  const nonAdmin=(data.users||[]).filter(u=>u.role!=="admin");
 
   // TOTALS
-  const totalReceived=data.client_payments.filter(p=>p.status==="received").reduce((s,p)=>s+Number(p.amount),0);
-  const totalPending=data.client_payments.filter(p=>p.status==="pending").reduce((s,p)=>s+Number(p.amount),0);
-  const totalGiven=data.handovers.reduce((s,h)=>s+Number(h.amount_given),0);
-  const totalReturned=data.handovers.reduce((s,h)=>s+Number(h.amount_returned||0),0);
-  const totalExpenses=data.expenses.reduce((s,e)=>s+Number(e.amount),0);
+  const clientPaidSalary=(data.salary||[]).filter(s=>{const alloc=(data.allocations||[]).find(a=>a.user_id===s.user_id&&a.active);return alloc?.paid_by==="client"||alloc?.paid_by==="both";}).reduce((s,x)=>s+Number(x.total||0),0);
+  const adminPaidSalary=(data.salary||[]).filter(s=>{const alloc=(data.allocations||[]).find(a=>a.user_id===s.user_id&&a.active);return !alloc||alloc?.paid_by==="admin"||alloc?.paid_by==="both";}).reduce((s,x)=>s+Number(x.total||0),0);
+  const totalReceived=(data.client_payments||[]).filter(p=>p.status==="received").reduce((s,p)=>s+Number(p.amount),0);
+  const totalPending=(data.client_payments||[]).filter(p=>p.status==="pending").reduce((s,p)=>s+Number(p.amount),0);
+  const totalGiven=(data.handovers||[]).reduce((s,h)=>s+Number(h.amount_given),0);
+  const totalReturned=(data.handovers||[]).reduce((s,h)=>s+Number(h.amount_returned||0),0);
+  const totalExpenses=(data.expenses||[]).reduce((s,e)=>s+Number(e.amount),0);
   const netSavings=totalReceived-totalGiven+(totalReturned);
 
   // SAVE CLIENT PAYMENT
@@ -1239,8 +1361,8 @@ function CashPage({data,setData,toast}){
   // SAVE HANDOVER
   const saveHO=()=>{
     if(!hof.supervisor_id||!hof.amount_given) return toast("Select supervisor and amount.");
-    const sup=data.users.find(u=>u.id===hof.supervisor_id);
-    const stall=data.stalls.find(s=>s.id===hof.stall_id);
+    const sup=(data.users||[]).find(u=>u.id===hof.supervisor_id);
+    const stall=(data.stalls||[]).find(s=>s.id===hof.stall_id);
     const d={...data,handovers:[...data.handovers,{id:genId(),...hof,amount_given:Number(hof.amount_given),amount_returned:null,date_returned:null}]};
     setData(d);save(d);setShowHO(false);
     if(sup) sendWA(sup.phone,`*Shinkore Marketing — Cash Handover*\n\nAap ko *${formatPKR(hof.amount_given)}* receive hua hai${stall?" for "+stall.name:""}.\nDate: ${hof.date_given}\n\nKharch ka hisab rakhen aur balance wapas karein.\n— Khalid`);
@@ -1257,14 +1379,14 @@ function CashPage({data,setData,toast}){
   // RETURN BALANCE
   const saveRB=()=>{
     if(!rbAmount) return toast("Enter returned amount.");
-    const d={...data,handovers:data.handovers.map(h=>h.id===rbHo.id?{...h,amount_returned:Number(rbAmount),date_returned:new Date().toISOString().slice(0,10)}:h)};
+    const d={...data,handovers:(data.handovers||[]).map(h=>h.id===rbHo.id?{...h,amount_returned:Number(rbAmount),date_returned:new Date().toISOString().slice(0,10)}:h)};
     setData(d);save(d);setShowRB(false);setRbHo(null);toast("Balance return recorded!");
   };
 
   const openRB=(ho)=>{setRbHo(ho);setRbAmount("");setShowRB(true);};
 
-  const getStallName=(id)=>{const s=data.stalls.find(x=>x.id===id);return s?s.name:"—";};
-  const getUserName=(id)=>{const u=data.users.find(x=>x.id===id);return u?u.name:"—";};
+  const getStallName=(id)=>{const s=(data.stalls||[]).find(x=>x.id===id);return s?s.name:"—";};
+  const getUserName=(id)=>{const u=(data.users||[]).find(x=>x.id===id);return u?u.name:"—";};
 
   const tabs=["overview","client","handover","expenses"];
 
@@ -1319,8 +1441,8 @@ function CashPage({data,setData,toast}){
           <div className="card">
             <div className="ch"><I n="money" s={16} c="var(--gr)"/><div className="ct">Recent Client Payments</div></div>
             <div className="cb">
-              {data.client_payments.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No payments yet.</div>}
-              {data.client_payments.slice(-5).reverse().map(p=>(
+              {(data.client_payments||[]).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No payments yet.</div>}
+              {(data.client_payments||[]).slice(-5).reverse().map(p=>(
                 <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{p.activity}</div>
@@ -1339,8 +1461,8 @@ function CashPage({data,setData,toast}){
             <div className="cb">
               {supervisors.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No supervisors yet.</div>}
               {supervisors.map(sup=>{
-                const given=data.handovers.filter(h=>h.supervisor_id===sup.id).reduce((s,h)=>s+Number(h.amount_given),0);
-                const returned=data.handovers.filter(h=>h.supervisor_id===sup.id).reduce((s,h)=>s+Number(h.amount_returned||0),0);
+                const given=(data.handovers||[]).filter(h=>h.supervisor_id===sup.id).reduce((s,h)=>s+Number(h.amount_given),0);
+                const returned=(data.handovers||[]).filter(h=>h.supervisor_id===sup.id).reduce((s,h)=>s+Number(h.amount_returned||0),0);
                 const pending=given-returned;
                 return(
                   <div key={sup.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
@@ -1374,8 +1496,8 @@ function CashPage({data,setData,toast}){
               <table>
                 <thead><tr><th>Activity</th><th>Stall</th><th>Amount</th><th>Date</th><th>Status</th><th>Notes</th></tr></thead>
                 <tbody>
-                  {data.client_payments.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No client payments recorded yet.</td></tr>}
-                  {data.client_payments.map(p=>(
+                  {(data.client_payments||[]).length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No client payments recorded yet.</td></tr>}
+                  {(data.client_payments||[]).map(p=>(
                     <tr key={p.id}>
                       <td style={{fontWeight:600}}>{p.activity}</td>
                       <td style={{color:"var(--txd)",fontSize:12}}>{getStallName(p.stall_id)}</td>
@@ -1402,10 +1524,10 @@ function CashPage({data,setData,toast}){
               <button className="bg" onClick={()=>setShowHO(true)}><I n="plus" s={15}/>Give Cash</button>
             </div>
             <div className="cb">
-              {data.handovers.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No handovers yet.</div>}
-              {data.handovers.map(h=>{
-                const sup=data.users.find(u=>u.id===h.supervisor_id);
-                const stall=data.stalls.find(s=>s.id===h.stall_id);
+              {(data.handovers||[]).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No handovers yet.</div>}
+              {(data.handovers||[]).map(h=>{
+                const sup=(data.users||[]).find(u=>u.id===h.supervisor_id);
+                const stall=(data.stalls||[]).find(s=>s.id===h.stall_id);
                 const balance=Number(h.amount_given)-(Number(h.amount_returned)||0);
                 return(
                   <div key={h.id} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:12,padding:16,marginBottom:12}}>
@@ -1450,8 +1572,8 @@ function CashPage({data,setData,toast}){
               <table>
                 <thead><tr><th>Staff</th><th>Type</th><th>Amount</th><th>Stall</th><th>Date</th><th>Notes</th></tr></thead>
                 <tbody>
-                  {data.expenses.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No expenses recorded yet.</td></tr>}
-                  {data.expenses.map(e=>(
+                  {(data.expenses||[]).length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No expenses recorded yet.</td></tr>}
+                  {(data.expenses||[]).map(e=>(
                     <tr key={e.id}>
                       <td style={{fontWeight:600}}>{getUserName(e.user_id)}</td>
                       <td><span style={{background:"rgba(231,76,60,.1)",color:"var(--rd)",border:"1px solid rgba(231,76,60,.25)",borderRadius:20,padding:"2px 9px",fontSize:11,textTransform:"capitalize"}}>{e.type}</span></td>
@@ -1478,7 +1600,7 @@ function CashPage({data,setData,toast}){
               <div className="fg"><label className="fl">Stall</label>
                 <select className="fsel" value={cpf.stall_id} onChange={e=>scp("stall_id",e.target.value)}>
                   <option value="">-- Select stall (optional) --</option>
-                  {data.stalls.map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
+                  {(data.stalls||[]).map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
                 </select>
               </div>
               <div className="frow">
@@ -1513,7 +1635,7 @@ function CashPage({data,setData,toast}){
               <div className="fg"><label className="fl">For Stall (optional)</label>
                 <select className="fsel" value={hof.stall_id} onChange={e=>sho("stall_id",e.target.value)}>
                   <option value="">-- General / No stall --</option>
-                  {data.stalls.map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
+                  {(data.stalls||[]).map(s=><option key={s.id} value={s.id}>{s.name} — {s.city}</option>)}
                 </select>
               </div>
               <div className="frow">
@@ -1555,7 +1677,7 @@ function CashPage({data,setData,toast}){
                 <div className="fg"><label className="fl">Stall</label>
                   <select className="fsel" value={exf.stall_id} onChange={e=>sex("stall_id",e.target.value)}>
                     <option value="">-- Optional --</option>
-                    {data.stalls.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                    {(data.stalls||[]).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div className="fg"><label className="fl">Date</label><input className="fi" type="date" value={exf.date} onChange={e=>sex("date",e.target.value)}/></div>
@@ -1627,7 +1749,7 @@ const generateSlipHTML = (user, rec, stalls, allocations) => {
   @media print{body{padding:20px}}
 </style></head><body>
 <div class="header">
-  <div><div class="co-name">SHINKORE MARKETING</div><div class="co-sub">Marketing Operations</div></div>
+  <div><div style="display:flex;align-items:center;gap:12px"><img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" style="width:55px;height:55px;border-radius:6px;object-fit:cover"/><div class="co-name">SHINKORE MARKETING</div></div><div class="co-sub">CEO: Khalid Orakzai</div><div class="co-sub">Civil Officer Col Office 28 | 03135443656 | 0992414034</div><div class="co-sub">www.appabbottabad.com</div></div>
   <div><div class="slip-title">SALARY SLIP</div><div class="slip-no">Ref: SLR-${rec.id.slice(0,6).toUpperCase()} · ${today}</div></div>
 </div>
 <div class="staff-box">
@@ -1685,7 +1807,7 @@ const generateBillHTML = (stall, payments, today) => {
   .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e0d0b0;font-size:12px;color:#aaa;text-align:center}
 </style></head><body>
 <div class="header">
-  <div><div class="co-name">SHINKORE MARKETING</div><div class="co-sub">Client Billing Statement</div></div>
+  <div><div style="display:flex;align-items:center;gap:12px"><img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" style="width:55px;height:55px;border-radius:6px;object-fit:cover"/><div class="co-name">SHINKORE MARKETING</div></div><div class="co-sub">CEO: Khalid Orakzai | Civil Officer Col Office 28</div><div class="co-sub">03135443656 | 0992414034 | www.appabbottabad.com</div></div>
   <div style="text-align:right"><div style="font-family:'Rajdhani',sans-serif;font-size:20px">BILLING SLIP</div><div style="font-size:12px;color:#888">Date: ${today}</div></div>
 </div>
 <div style="background:#f9f6ef;border:1px solid #e8d9b0;border-radius:10px;padding:16px 20px;margin-bottom:24px">
@@ -1704,7 +1826,7 @@ const generateBillHTML = (stall, payments, today) => {
   <div style="background:#e8f9f0;border:1px solid #a3d9b8;border-radius:8px;padding:12px;text-align:center"><div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Received</div><div style="font-family:'Rajdhani',sans-serif;font-size:20px;color:#1a8a4a">PKR ${received.toLocaleString()}</div></div>
   <div style="background:#fff8e8;border:1px solid #e8d080;border-radius:8px;padding:12px;text-align:center"><div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Pending</div><div style="font-family:'Rajdhani',sans-serif;font-size:20px;color:#b87800">PKR ${pending.toLocaleString()}</div></div>
 </div>
-<div class="footer">Shinkore Marketing · Generated ${today}</div>
+<div class="footer">Shinkore Marketing | CEO: Khalid Orakzai | Civil Officer Col Office 28 | 03135443656 | www.appabbottabad.com</div>
 </body></html>`;
 };
 
@@ -1718,18 +1840,29 @@ const openPrint = (html) => {
 
 // ─── SALARY PAGE ──────────────────────────────────────────────────────────────
 function SalaryPage({data,setData,toast}){
+  const calcSalary=(days,rate,bonus,deductions)=>{
+    return(Number(days)||0)*(Number(rate)||0)+(Number(bonus)||0)-(Number(deductions)||0);
+  };
+  const getApprovedDays=(userId,month)=>{
+    const acts=(data.activities||[]).filter(a=>
+      a.ba_id===userId&&
+      a.approval_status==="approved"&&
+      a.date&&a.date.startsWith(month)
+    );
+    return[...new Set(acts.map(a=>a.date))].length;
+  };
   const [tab,setTab]=useState("salary");
   const [showAdd,setShowAdd]=useState(false);
   const [selUser,setSelUser]=useState("");
   const [f,setF]=useState({user_id:"",month:"",days_worked:"",daily_rate:"",bonus:"",deductions:"",notes:"",status:"pending"});
   const sf=(k,v)=>setF(p=>({...p,[k]:v}));
   const today=new Date().toLocaleDateString("en-PK",{year:"numeric",month:"long",day:"numeric"});
-  const nonAdmin=data.users.filter(u=>u.role!=="admin");
+  const nonAdmin=(data.users||[]).filter(u=>u.role!=="admin");
 
   const openAdd=(u)=>{
     const now=new Date();
     const mon=now.toLocaleDateString("en-PK",{month:"long",year:"numeric"});
-    const att=data.attendance.filter(a=>a.user_id===u.id);
+    const att=(data.attendance||[]).filter(a=>a.user_id===u.id);
     const days=new Set(att.map(a=>a.date)).size;
     setF({user_id:u.id,month:mon,days_worked:days||0,daily_rate:u.daily_rate||0,bonus:"",deductions:"",notes:"",status:"pending"});
     setShowAdd(true);
@@ -1752,28 +1885,28 @@ function SalaryPage({data,setData,toast}){
     const d={...data,salary:data.salary.map(s=>s.id===rec.id?{...s,status:ns}:s)};
     setData(d);save(d);
     if(ns==="paid"){
-      const u=data.users.find(x=>x.id===rec.user_id);
+      const u=(data.users||[]).find(x=>x.id===rec.user_id);
       if(u) sendWA(u.phone,`*Shinkore Marketing — Salary Paid* ✅\n\nDear ${u.name},\n\nAap ki ${rec.month} ki salary *${formatPKR(rec.total)}* receive ho gayi hai.\n\nDin: ${rec.days_worked} · Rate: ${formatPKR(rec.daily_rate)}/din\n\nShukriya! — Khalid Orakzai`);
     }
     toast(ns==="paid"?"Marked paid — WhatsApp sent!":"Marked pending.");
   };
 
   const doSlip=(rec)=>{
-    const u=data.users.find(x=>x.id===rec.user_id);
+    const u=(data.users||[]).find(x=>x.id===rec.user_id);
     if(!u) return;
     const html=generateSlipHTML(u,rec,data.stalls,data.allocations);
     openPrint(html);
   };
 
   const shareSlipWA=(rec)=>{
-    const u=data.users.find(x=>x.id===rec.user_id);
+    const u=(data.users||[]).find(x=>x.id===rec.user_id);
     if(!u) return;
     const msg=`*SHINKORE MARKETING — Salary Slip*\n\n👤 Name: ${u.name}\n🏷️ Role: ${u.role==="ba"?"Business Ambassador":"Supervisor"}\n📅 Month: ${rec.month}\n📆 Days Worked: ${rec.days_worked}\n💵 Rate/Day: ${formatPKR(rec.daily_rate)}\n${rec.bonus?`🎁 Bonus: ${formatPKR(rec.bonus)}\n`:""}${rec.deductions?`➖ Deductions: ${formatPKR(rec.deductions)}\n`:""}\n💰 *Net Salary: ${formatPKR(rec.total)}*\nStatus: ${rec.status==="paid"?"✅ PAID":"⏳ PENDING"}\n\n— Shinkore Marketing`;
     sendWA(u.phone,msg);
   };
 
   const doBill=(stall)=>{
-    const payments=data.client_payments.filter(p=>p.stall_id===stall.id);
+    const payments=(data.client_payments||[]).filter(p=>p.stall_id===stall.id);
     if(payments.length===0) return toast("No payments recorded for this stall.");
     const html=generateBillHTML(stall,payments,today);
     openPrint(html);
@@ -1795,7 +1928,7 @@ function SalaryPage({data,setData,toast}){
             <div className="cb">
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:12}}>
                 {nonAdmin.map(u=>{
-                  const att=data.attendance.filter(a=>a.user_id===u.id);
+                  const att=(data.attendance||[]).filter(a=>a.user_id===u.id);
                   const days=new Set(att.map(a=>a.date)).size;
                   const existing=data.salary.filter(s=>s.user_id===u.id);
                   return(
@@ -1819,7 +1952,7 @@ function SalaryPage({data,setData,toast}){
             <div className="cb" style={{padding:0}}>
               {data.salary.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)",fontSize:13}}>No salary records yet. Generate from above.</div>}
               {data.salary.slice().reverse().map(rec=>{
-                const u=data.users.find(x=>x.id===rec.user_id);
+                const u=(data.users||[]).find(x=>x.id===rec.user_id);
                 if(!u) return null;
                 return(
                   <div key={rec.id} style={{padding:"16px 20px",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
@@ -1854,9 +1987,9 @@ function SalaryPage({data,setData,toast}){
         <div className="card">
           <div className="ch"><I n="money" s={17} c="var(--g)"/><div><div className="ct">Client Billing Slips</div><div className="cs">Generate billing PDF per stall</div></div></div>
           <div className="cb">
-            {data.stalls.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No stalls added yet.</div>}
-            {data.stalls.map(stall=>{
-              const payments=data.client_payments.filter(p=>p.stall_id===stall.id);
+            {(data.stalls||[]).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No stalls added yet.</div>}
+            {(data.stalls||[]).map(stall=>{
+              const payments=(data.client_payments||[]).filter(p=>p.stall_id===stall.id);
               const total=payments.reduce((s,p)=>s+Number(p.amount),0);
               const received=payments.filter(p=>p.status==="received").reduce((s,p)=>s+Number(p.amount),0);
               const pending=payments.filter(p=>p.status==="pending").reduce((s,p)=>s+Number(p.amount),0);
@@ -1893,7 +2026,7 @@ function SalaryPage({data,setData,toast}){
             <div className="mh"><div className="mt">Create Salary Record</div><div className="mc" onClick={()=>setShowAdd(false)}>×</div></div>
             <div className="mb">
               <div className="fg"><label className="fl">Staff Member</label>
-                <select className="fsel" value={f.user_id} onChange={e=>{sf("user_id",e.target.value);const u=data.users.find(x=>x.id===e.target.value);if(u)sf("daily_rate",u.daily_rate);}}>
+                <select className="fsel" value={f.user_id} onChange={e=>{sf("user_id",e.target.value);const u=(data.users||[]).find(x=>x.id===e.target.value);if(u)sf("daily_rate",u.daily_rate);}}>
                   <option value="">-- Select --</option>
                   {nonAdmin.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role==="ba"?"BA":"Supervisor"})</option>)}
                 </select>
@@ -1965,6 +2098,1000 @@ function MySalaryPage({user,data}){
   );
 }
 
+
+// ─── PERSONAL FINANCE PAGE ───────────────────────────────────────────────────
+function PersonalPage({data,setData,toast}){
+  const [tab,setTab]=useState("overview");
+  const [show,setShow]=useState(false);
+  const [f,setF]=useState({type:"expense",category:"fuel",amount:"",date:new Date().toISOString().slice(0,10),person_name:"",description:"",status:"paid",notes:""});
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const personal=data.personal||[];
+
+  const totalFuel=personal.filter(x=>x.category==="fuel").reduce((s,x)=>s+Number(x.amount),0);
+  const totalMaint=personal.filter(x=>x.category==="maintenance").reduce((s,x)=>s+Number(x.amount),0);
+  const loansGiven=personal.filter(x=>x.type==="loan_given"&&x.status==="pending").reduce((s,x)=>s+Number(x.amount),0);
+  const loansReceived=personal.filter(x=>x.type==="loan_received"&&x.status==="pending").reduce((s,x)=>s+Number(x.amount),0);
+  const netLoans=loansGiven-loansReceived;
+
+  const doSave=()=>{
+    if(!f.amount) return toast("Enter amount.");
+    const d={...data,personal:[...(data.personal||[]),{id:genId(),...f,amount:Number(f.amount)}]};
+    setData(d);save(d);setShow(false);toast("Saved!");
+  };
+
+  const markPaid=(item)=>{
+    const d={...data,personal:(data.personal||[]).map(x=>x.id===item.id?{...x,status:"paid"}:x)};
+    setData(d);save(d);toast("Marked as paid!");
+  };
+
+  return(
+    <div>
+      <div className="sg">
+        <div className="sc rd"><div className="si rd"><I n="money" s={17}/></div><div className="sv" style={{fontSize:18}}>{formatPKR(totalFuel)}</div><div className="sl">Fuel Total</div></div>
+        <div className="sc bl"><div className="si bl"><I n="set" s={17}/></div><div className="sv" style={{fontSize:18}}>{formatPKR(totalMaint)}</div><div className="sl">Maintenance</div></div>
+        <div className="sc gold"><div className="si gold"><I n="money" s={17}/></div><div className="sv" style={{fontSize:18}}>{formatPKR(loansGiven)}</div><div className="sl">Loans Given</div></div>
+        <div className="sc gr"><div className="si gr"><I n="money" s={17}/></div><div className="sv" style={{fontSize:18,color:netLoans>=0?"var(--gr)":"var(--rd)"}}>{formatPKR(Math.abs(netLoans))}</div><div className="sl">{netLoans>=0?"Net: Owed to You":"Net: You Owe"}</div></div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {["overview","car","loans"].map(t=>(
+          <button key={t} className={tab===t?"bg":"bs"} onClick={()=>setTab(t)} style={{textTransform:"capitalize"}}>{t==="overview"?"Overview":t==="car"?"Car & Fuel":"Loans"}</button>
+        ))}
+        <button className="bg" onClick={()=>setShow(true)} style={{marginLeft:"auto"}}><I n="plus" s={15}/>Add Record</button>
+      </div>
+
+      {tab==="overview"&&(
+        <div className="card">
+          <div className="ch"><I n="money" s={17} c="var(--g)"/><div className="ct">Recent Records</div></div>
+          <div className="cb">
+            {personal.length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No records yet.</div>}
+            {personal.slice().reverse().slice(0,10).map(item=>(
+              <div key={item.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:13}}>{item.description||item.category}</div>
+                  <div style={{fontSize:11,color:"var(--txd)"}}>{item.type==="loan_given"?"Loan Given":item.type==="loan_received"?"Loan Received":item.category} · {item.date}</div>
+                  {item.person_name&&<div style={{fontSize:11,color:"var(--bl)"}}>{item.person_name}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"Rajdhani",fontSize:16,color:item.type==="loan_received"?"var(--gr)":"var(--rd)"}}>{formatPKR(item.amount)}</div>
+                  <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab==="car"&&(
+        <div className="card">
+          <div className="ch"><I n="set" s={17} c="var(--g)"/><div className="ct">Car Expenses</div></div>
+          <div className="cb">
+            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No car expenses yet.</div>}
+            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)).map(item=>(
+              <div key={item.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,textTransform:"capitalize"}}>{item.category}</div>
+                  <div style={{fontSize:11,color:"var(--txd)"}}>{item.description||""} · {item.date}</div>
+                </div>
+                <div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--rd)"}}>{formatPKR(item.amount)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab==="loans"&&(
+        <div>
+          <div className="card" style={{marginBottom:14}}>
+            <div className="ch"><I n="money" s={17} c="var(--or)"/><div><div className="ct">Loans Given</div><div className="cs">Money you gave to others</div></div></div>
+            <div className="cb">
+              {personal.filter(x=>x.type==="loan_given").length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No loans given.</div>}
+              {personal.filter(x=>x.type==="loan_given").map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{item.person_name||"Unknown"}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{item.description||""} · {item.date}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--or)"}}>{formatPKR(item.amount)}</div>
+                    <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
+                  </div>
+                  {item.status==="pending"&&<button className="bg" onClick={()=>markPaid(item)} style={{fontSize:11,padding:"5px 10px"}}><I n="ok" s={12}/>Paid</button>}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <div className="ch"><I n="money" s={17} c="var(--gr)"/><div><div className="ct">Loans Received</div><div className="cs">Money others gave you</div></div></div>
+            <div className="cb">
+              {personal.filter(x=>x.type==="loan_received").length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No loans received.</div>}
+              {personal.filter(x=>x.type==="loan_received").map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{item.person_name||"Unknown"}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{item.description||""} · {item.date}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--gr)"}}>{formatPKR(item.amount)}</div>
+                    <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
+                  </div>
+                  {item.status==="pending"&&<button className="bg" onClick={()=>markPaid(item)} style={{fontSize:11,padding:"5px 10px"}}><I n="ok" s={12}/>Paid</button>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">Add Personal Record</div><div className="mc" onClick={()=>setShow(false)}>x</div></div>
+            <div className="mb">
+              <div className="fg"><label className="fl">Type</label>
+                <select className="fsel" value={f.type} onChange={e=>sf("type",e.target.value)}>
+                  <option value="expense">Expense</option>
+                  <option value="loan_given">Loan Given</option>
+                  <option value="loan_received">Loan Received</option>
+                </select>
+              </div>
+              {f.type==="expense"&&<div className="fg"><label className="fl">Category</label>
+                <select className="fsel" value={f.category} onChange={e=>sf("category",e.target.value)}>
+                  <option value="fuel">Fuel</option>
+                  <option value="maintenance">Car Maintenance</option>
+                  <option value="other_car">Other Car</option>
+                  <option value="personal">Personal</option>
+                </select>
+              </div>}
+              {(f.type==="loan_given"||f.type==="loan_received")&&<div className="fg"><label className="fl">Person Name</label><input className="fi" value={f.person_name} onChange={e=>sf("person_name",e.target.value)} placeholder="Name of person"/></div>}
+              <div className="frow">
+                <div className="fg"><label className="fl">Amount (PKR)</label><input className="fi" type="number" value={f.amount} onChange={e=>sf("amount",e.target.value)}/></div>
+                <div className="fg"><label className="fl">Date</label><input className="fi" type="date" value={f.date} onChange={e=>sf("date",e.target.value)}/></div>
+              </div>
+              <div className="fg"><label className="fl">Description</label><input className="fi" value={f.description} onChange={e=>sf("description",e.target.value)} placeholder="Details"/></div>
+              <div className="fg"><label className="fl">Status</label>
+                <select className="fsel" value={f.status} onChange={e=>sf("status",e.target.value)}>
+                  <option value="paid">Paid / Done</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </div>
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>Save</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ACTIVITY REPORTS ─────────────────────────────────────────────────────────
+function ActivityPage({user,data,setData,toast}){
+  const isAdmin=user.role==="admin";
+  const isSup=user.role==="supervisor";
+  const isBA=user.role==="ba";
+  const [view,setView]=useState("list");
+  const [editing,setEditing]=useState(null);
+  const [filter,setFilter]=useState({ba:"",city:"",brand:"",date:"",status:""});
+  const calcHours=(pi,po,bs,be)=>{if(!pi||!po)return"—";const toMin=(t)=>{const[h,m]=t.split(":").map(Number);return h*60+m;};let w=toMin(po)-toMin(pi);if(bs&&be)w-=(toMin(be)-toMin(bs));if(w<0)return"—";return Math.floor(w/60)+"h "+(w%60)+"m";};
+  const catColor=(cat)=>cat==="high"?"var(--rd)":cat==="medium"?"var(--or)":"var(--gr)";
+  const catBg=(cat)=>cat==="high"?"rgba(231,76,60,.12)":cat==="medium"?"rgba(240,165,0,.12)":"rgba(46,204,113,.12)";
+  const addItem=(field)=>setForm(p=>({...p,[field]:[...p[field],{id:genId(),name:"",qty:"",size:""}]}));
+  const updateItem=(field,id,key,val)=>setForm(p=>({...p,[field]:p[field].map(x=>x.id===id?{...x,[key]:val}:x)}));
+  const removeItem=(field,id)=>setForm(p=>({...p,[field]:p[field].filter(x=>x.id!==id)}));
+  const emptyAct={id:"",type:"productive",location_type:"instore",activity_title:"",ba_gender:"male",city:"",store_name:"",brand:"",ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:"",date:new Date().toISOString().slice(0,10),punch_in:"",punch_out:"",break_start:"",break_end:"",gift_items:[],usership:[],total_interceptions:"",total_productive:"",sales_items:[],total_kg:"",total_pcs:"",sampling_items:[],stock_received:[],stock_used:[],stock_returned:"",ba_remark:"",ba_remark_cat:"low",ba_remark_status:"pending",sup_remark:"",sup_remark_cat:"low",sup_remark_status:"pending",admin_note:"",admin_status:"pending",approval_status:"draft",photos:[],created_by:user.id};
+  const [form,setForm]=useState(emptyAct);
+  const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const bas=(data.users||[]).filter(u=>u.role==="ba");
+  const sups=(data.users||[]).filter(u=>u.role==="supervisor");
+  const doSave=()=>{
+    if(!form.city||!form.store_name||!form.brand)return toast("City, store and brand required.");
+    if(!form.ba_id)return toast("Select BA.");
+    const rec={...form,id:form.id||genId()};
+    const d={...data};
+    if(editing)d.activities=d.activities.map(a=>a.id===rec.id?rec:a);
+    else d.activities=[...(d.activities||[]),rec];
+    if(rec.ba_remark_cat==="high"||rec.sup_remark_cat==="high"){
+      const ba=(data.users||[]).find(u=>u.id===rec.ba_id);
+      const msg="HIGH PRIORITY REMARK - SHINKORE\nBA: "+(ba?.name||"")+"\nStore: "+rec.store_name+", "+rec.city+"\nBrand: "+rec.brand+"\nRemark: "+(rec.ba_remark||rec.sup_remark);
+      ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
+    }
+    setData(d);save(d);setView("list");setEditing(null);toast(editing?"Updated!":"Activity saved!");
+  };
+  const openEdit=(act)=>{setForm({...emptyAct,...act});setEditing(act);setView("form");};
+  const openNew=()=>{setForm({...emptyAct,ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:""});setEditing(null);setView("form");};
+  const printActivity=(act)=>{
+    const ba=(data.users||[]).find(u=>u.id===act.ba_id);
+    const sup=(data.users||[]).find(u=>u.id===act.supervisor_id);
+    const hrs=calcHours(act.punch_in,act.punch_out,act.break_start,act.break_end);
+    const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:30px;max-width:720px;margin:0 auto}.co{font-size:24px;font-weight:700;color:#C9A84C}.sec{margin:16px 0}.st{font-size:15px;font-weight:700;background:#f5f0e8;padding:8px 12px;border-left:4px solid #C9A84C;margin-bottom:8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.kv{padding:6px 0;border-bottom:1px solid #f0e8d0}.k{font-size:11px;color:#888;text-transform:uppercase}.v{font-size:14px;font-weight:600}table{width:100%;border-collapse:collapse}th{background:#C9A84C;color:#fff;padding:8px;font-size:12px}td{padding:8px;border-bottom:1px solid #f0e8d0}.high{color:#c0392b}.medium{color:#b87800}.low{color:#1a8a4a}</style></head><body>'
+    +'<div class="co">SHINKORE MARKETING</div><div style="font-size:11px;color:#888">CEO: Khalid Orakzai | 03135443656 | www.appabbottabad.com</div><hr style="border-color:#C9A84C;margin:12px 0">'
+    +'<div style="display:flex;justify-content:space-between"><div><strong>ACTIVITY REPORT</strong></div><div>'+act.date+'</div></div>'
+    +'<div class="sec"><div class="st">Activity Details</div><div class="grid">'
+    +'<div class="kv"><div class="k">Type</div><div class="v">'+act.type+'</div></div>'
+    +'<div class="kv"><div class="k">Location</div><div class="v">'+act.location_type+'</div></div>'
+    +'<div class="kv"><div class="k">City</div><div class="v">'+act.city+'</div></div>'
+    +'<div class="kv"><div class="k">Store</div><div class="v">'+act.store_name+'</div></div>'
+    +'<div class="kv"><div class="k">Brand</div><div class="v">'+act.brand+'</div></div>'
+    +'<div class="kv"><div class="k">BA</div><div class="v">'+(ba?.name||"—")+'</div></div>'
+    +'<div class="kv"><div class="k">Supervisor</div><div class="v">'+(sup?.name||"—")+'</div></div>'
+    +'<div class="kv"><div class="k">Hours</div><div class="v">'+hrs+'</div></div>'
+    +'</div></div>'
+    +(act.type==="productive"?'<div class="sec"><div class="st">Productive Data</div><div class="grid"><div class="kv"><div class="k">Interceptions</div><div class="v">'+(act.total_interceptions||0)+'</div></div><div class="kv"><div class="k">Buyers</div><div class="v">'+(act.total_productive||0)+'</div></div><div class="kv"><div class="k">Total KG</div><div class="v">'+(act.total_kg||0)+' kg</div></div><div class="kv"><div class="k">Total PCs</div><div class="v">'+(act.total_pcs||0)+' pcs</div></div></div>'
+    +((act.sales_items||[]).length?'<table style="margin-top:8px"><thead><tr><th>Product</th><th>Size</th><th>Qty</th></tr></thead><tbody>'+(act.sales_items||[]).map(x=>'<tr><td>'+x.name+'</td><td>'+(x.size||"")+'</td><td>'+x.qty+'</td></tr>').join('')+'</tbody></table>':'')
+    +'</div>':'')
+    +(act.type==="gifting"&&(act.gift_items||[]).length?'<div class="sec"><div class="st">Gift Items</div><table><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody>'+(act.gift_items||[]).map(x=>'<tr><td>'+x.name+'</td><td>'+x.qty+'</td></tr>').join('')+'<tr><td><strong>Total</strong></td><td><strong>'+(act.gift_items||[]).reduce((s,x)=>s+Number(x.qty||0),0)+'</strong></td></tr></tbody></table></div>':"")
+    +(act.type==="sampling"&&(act.sampling_items||[]).length?'<div class="sec"><div class="st">Sampling</div><table><thead><tr><th>Product</th><th>Qty</th></tr></thead><tbody>'+(act.sampling_items||[]).map(x=>'<tr><td>'+x.name+'</td><td>'+x.qty+'</td></tr>').join('')+'</tbody></table></div>':"")
+    +(act.ba_remark?'<div class="sec"><div class="st">Remarks</div><div style="padding:8px;background:#f9f9f9;border-radius:6px"><div class="k">BA: <span class="'+act.ba_remark_cat+'">'+act.ba_remark_cat.toUpperCase()+'</span></div><div>'+act.ba_remark+'</div></div></div>':"")
+    +(act.sup_remark?'<div style="padding:8px;background:#f9f9f9;border-radius:6px;margin-top:6px"><div class="k">SUP: <span class="'+act.sup_remark_cat+'">'+act.sup_remark_cat.toUpperCase()+'</span></div><div>'+act.sup_remark+'</div></div>':"")
+    +'<div style="display:flex;justify-content:space-between;margin-top:40px"><div style="border-top:1px solid #999;width:160px;padding-top:6px;text-align:center;font-size:12px">BA: '+(ba?.name||"")+'</div><div style="border-top:1px solid #999;width:160px;padding-top:6px;text-align:center;font-size:12px">Supervisor: '+(sup?.name||"")+'</div><div style="border-top:1px solid #999;width:160px;padding-top:6px;text-align:center;font-size:12px">Admin: Khalid Orakzai</div></div>'
+    +'</body></html>';
+    openPrint(html);
+  };
+  let acts=(data.activities||[]).slice().reverse();
+  if(isBA)acts=acts.filter(a=>a.ba_id===user.id);
+  if(isSup)acts=acts.filter(a=>a.supervisor_id===user.id);
+  if(filter.ba)acts=acts.filter(a=>a.ba_id===filter.ba);
+  if(filter.city)acts=acts.filter(a=>a.city.toLowerCase().includes(filter.city.toLowerCase()));
+  if(filter.brand)acts=acts.filter(a=>a.brand.toLowerCase().includes(filter.brand.toLowerCase()));
+  if(filter.date)acts=acts.filter(a=>a.date===filter.date);
+  if(filter.status)acts=acts.filter(a=>a.ba_remark_status===filter.status||a.sup_remark_status===filter.status);
+  const highRemarks=acts.filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
+
+  if(view==="form")return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <button className="bs" onClick={()=>{setView("list");setEditing(null);}}><I n="back" s={16}/>Back</button>
+        <div style={{fontFamily:"Rajdhani",fontSize:20,fontWeight:700}}>{editing?"Edit Activity":"New Activity Report"}</div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="map" s={16} c="var(--g)"/><div className="ct">Activity Info</div></div>
+        <div className="cb">
+          <div className="fg"><label className="fl">Activity Title</label><input className="fi" value={form.activity_title} onChange={e=>sf("activity_title",e.target.value)} placeholder="e.g. Brite In-store Activity – Male BA Gifting"/></div>
+          <div className="frow">
+            <div className="fg"><label className="fl">Activity Type</label>
+              <select className="fsel" value={form.type} onChange={e=>sf("type",e.target.value)}>
+                <option value="productive">Productive</option>
+                <option value="gifting">Gifting</option>
+                <option value="sampling">Free Sampling</option>
+              </select>
+            </div>
+            <div className="fg"><label className="fl">Location Type</label>
+              <select className="fsel" value={form.location_type} onChange={e=>sf("location_type",e.target.value)}>
+                <option value="instore">In-Store</option>
+                <option value="doortodoor">Door to Door</option>
+                <option value="stall">Stall</option>
+              </select>
+            </div>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">BA Gender</label><select className="fsel" value={form.ba_gender} onChange={e=>sf("ba_gender",e.target.value)}><option value="male">Male BA</option><option value="female">Female BA</option></select></div>
+            <div className="fg"><label className="fl">Brand</label><input className="fi" value={form.brand} onChange={e=>sf("brand",e.target.value)} placeholder="e.g. Brite"/></div>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">City</label><input className="fi" value={form.city} onChange={e=>sf("city",e.target.value)} placeholder="e.g. Abbottabad"/></div>
+            <div className="fg"><label className="fl">Store / Location</label><input className="fi" value={form.store_name} onChange={e=>sf("store_name",e.target.value)} placeholder="e.g. Gilani Mart"/></div>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">Date</label><input className="fi" type="date" value={form.date} onChange={e=>sf("date",e.target.value)}/></div>
+          </div>
+          {(isAdmin||isSup)&&<div className="frow">
+            <div className="fg"><label className="fl">Business Ambassador</label>
+              <select className="fsel" value={form.ba_id} onChange={e=>sf("ba_id",e.target.value)}>
+                <option value="">-- Select BA --</option>
+                {bas.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div className="fg"><label className="fl">Supervisor</label>
+              <select className="fsel" value={form.supervisor_id} onChange={e=>sf("supervisor_id",e.target.value)}>
+                <option value="">-- Select --</option>
+                {sups.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          </div>}
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="clock" s={16} c="var(--g)"/><div className="ct">Timing</div></div>
+        <div className="cb">
+          <div className="frow">
+            <div className="fg"><label className="fl">Store In Time</label><input className="fi" type="time" value={form.punch_in} onChange={e=>sf("punch_in",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Store Out Time</label><input className="fi" type="time" value={form.punch_out} onChange={e=>sf("punch_out",e.target.value)}/></div>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">Break Start</label><input className="fi" type="time" value={form.break_start} onChange={e=>sf("break_start",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Break End</label><input className="fi" type="time" value={form.break_end} onChange={e=>sf("break_end",e.target.value)}/></div>
+          </div>
+          {form.punch_in&&form.punch_out&&<div style={{background:"var(--gd)",borderRadius:9,padding:"10px 14px",fontSize:13}}>Total Hours: <strong style={{color:"var(--g)"}}>{calcHours(form.punch_in,form.punch_out,form.break_start,form.break_end)}</strong></div>}
+        </div>
+      </div>
+      {form.type==="gifting"&&<div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="plus" s={16} c="var(--g)"/><div style={{flex:1}}><div className="ct">Gift Items</div></div><button className="bg" onClick={()=>addItem("gift_items")} style={{fontSize:12}}><I n="plus" s={13}/>Add</button></div>
+        <div className="cb">
+          {form.gift_items.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:8}}><input className="fi" placeholder="Item name" value={item.name} onChange={e=>updateItem("gift_items",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("gift_items",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("gift_items",item.id)}><I n="del" s={13}/></button></div>))}
+          {form.gift_items.length>0&&<div style={{textAlign:"right",fontSize:13,color:"var(--g)",fontWeight:600}}>Total: {form.gift_items.reduce((s,x)=>s+Number(x.qty||0),0)}</div>}
+        </div>
+      </div>}
+      {form.type==="productive"&&<div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="dash" s={16} c="var(--g)"/><div className="ct">Productive Data</div></div>
+        <div className="cb">
+          <div className="frow">
+            <div className="fg"><label className="fl">Total Interceptions</label><input className="fi" type="number" value={form.total_interceptions} onChange={e=>sf("total_interceptions",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Productive Buyers</label><input className="fi" type="number" value={form.total_productive} onChange={e=>sf("total_productive",e.target.value)}/></div>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">Total KG</label><input className="fi" type="number" value={form.total_kg} onChange={e=>sf("total_kg",e.target.value)}/></div>
+            <div className="fg"><label className="fl">Total PCs</label><input className="fi" type="number" value={form.total_pcs} onChange={e=>sf("total_pcs",e.target.value)}/></div>
+          </div>
+          <div style={{marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"var(--txd)"}}>Usership</div><button className="bg" onClick={()=>addItem("usership")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
+          {form.usership.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Brand" value={item.name} onChange={e=>updateItem("usership",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Count" type="number" value={item.qty} onChange={e=>updateItem("usership",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("usership",item.id)}><I n="del" s={12}/></button></div>))}
+          <div style={{marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"var(--txd)"}}>Sales SKU</div><button className="bg" onClick={()=>addItem("sales_items")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
+          {form.sales_items.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Product" value={item.name} onChange={e=>updateItem("sales_items",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Size" value={item.size} onChange={e=>updateItem("sales_items",item.id,"size",e.target.value)} style={{flex:1}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("sales_items",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("sales_items",item.id)}><I n="del" s={12}/></button></div>))}
+        </div>
+      </div>}
+      {form.type==="sampling"&&<div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="plus" s={16} c="var(--g)"/><div style={{flex:1}}><div className="ct">Sampling Items</div></div><button className="bg" onClick={()=>addItem("sampling_items")} style={{fontSize:12}}><I n="plus" s={13}/>Add</button></div>
+        <div className="cb">
+          {form.sampling_items.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Product" value={item.name} onChange={e=>updateItem("sampling_items",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("sampling_items",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("sampling_items",item.id)}><I n="del" s={12}/></button></div>))}
+          {form.sampling_items.length>0&&<div style={{textAlign:"right",fontSize:13,color:"var(--g)",fontWeight:600}}>Total: {form.sampling_items.reduce((s,x)=>s+Number(x.qty||0),0)}</div>}
+        </div>
+      </div>}
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="users" s={16} c="var(--g)"/><div className="ct">Stock / Material</div></div>
+        <div className="cb">
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div style={{fontSize:12,color:"var(--txd)"}}>Items Received</div><button className="bg" onClick={()=>addItem("stock_received")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
+          {form.stock_received.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Item" value={item.name} onChange={e=>updateItem("stock_received",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("stock_received",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("stock_received",item.id)}><I n="del" s={12}/></button></div>))}
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,marginTop:10}}><div style={{fontSize:12,color:"var(--txd)"}}>Items Used</div><button className="bg" onClick={()=>addItem("stock_used")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
+          {form.stock_used.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Item" value={item.name} onChange={e=>updateItem("stock_used",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("stock_used",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("stock_used",item.id)}><I n="del" s={12}/></button></div>))}
+          <div className="fg" style={{marginTop:8}}><label className="fl">Balance Returned</label><input className="fi" value={form.stock_returned} onChange={e=>sf("stock_returned",e.target.value)} placeholder="e.g. 5 bags returned"/></div>
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="pin" s={16} c="var(--bl)"/><div style={{flex:1}}><div className="ct">📸 Photos</div><div className="cs">Take photos as evidence</div></div></div>
+        <div className="cb">
+          <input type="file" accept="image/*" capture="environment" multiple style={{display:"none"}} id="photoInput" onChange={async(e)=>{const files=Array.from(e.target.files);toast("Uploading photos...");const uploaded=[];for(const file of files){const r=await uploadPhoto(file);if(r)uploaded.push({id:genId(),url:r.url,thumb:r.thumb});}if(uploaded.length>0){sf("photos",[...(form.photos||[]),...uploaded]);toast(uploaded.length+" photo(s) uploaded!");}else toast("Upload failed. Check internet.");e.target.value="";}}/>
+          <button className="bg" onClick={()=>document.getElementById("photoInput").click()} style={{width:"100%",justifyContent:"center",marginBottom:12}}><I n="plus" s={15}/>Take / Upload Photos</button>
+          {(form.photos||[]).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(form.photos||[]).map(p=>(<div key={p.id} style={{position:"relative"}}><img src={p.thumb||p.url} style={{width:70,height:70,borderRadius:8,objectFit:"cover"}}/><button onClick={()=>sf("photos",(form.photos||[]).filter(x=>x.id!==p.id))} style={{position:"absolute",top:-6,right:-6,background:"var(--rd)",border:"none",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div>))}</div>}
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="alert" s={16} c="var(--or)"/><div className="ct">Remarks</div></div>
+        <div className="cb">
+          {(isAdmin||isBA)&&<div style={{marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>BA Remarks</div>
+            <div className="fg"><label className="fl">Remark</label><input className="fi" value={form.ba_remark} onChange={e=>sf("ba_remark",e.target.value)} placeholder="Enter remark..."/></div>
+            <div className="frow">
+              <div className="fg"><label className="fl">Priority</label><select className="fsel" value={form.ba_remark_cat} onChange={e=>sf("ba_remark_cat",e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+              <div className="fg"><label className="fl">Status</label><select className="fsel" value={form.ba_remark_status} onChange={e=>sf("ba_remark_status",e.target.value)}><option value="pending">Pending</option><option value="solved">Solved</option></select></div>
+            </div>
+          </div>}
+          {(isAdmin||isSup)&&<div style={{marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--bl)",fontWeight:600,marginBottom:8}}>Supervisor Remarks</div>
+            <div className="fg"><label className="fl">Remark</label><input className="fi" value={form.sup_remark} onChange={e=>sf("sup_remark",e.target.value)} placeholder="Supervisor notes..."/></div>
+            <div className="frow">
+              <div className="fg"><label className="fl">Priority</label><select className="fsel" value={form.sup_remark_cat} onChange={e=>sf("sup_remark_cat",e.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+              <div className="fg"><label className="fl">Status</label><select className="fsel" value={form.sup_remark_status} onChange={e=>sf("sup_remark_status",e.target.value)}><option value="pending">Pending</option><option value="solved">Solved</option></select></div>
+            </div>
+          </div>}
+          {isAdmin&&<div>
+            <div style={{fontSize:12,color:"var(--rd)",fontWeight:600,marginBottom:8}}>Admin Follow-up</div>
+            <div className="fg"><label className="fl">Admin Note</label><input className="fi" value={form.admin_note} onChange={e=>sf("admin_note",e.target.value)} placeholder="Admin notes..."/></div>
+            <div className="fg"><label className="fl">Status</label><select className="fsel" value={form.admin_status} onChange={e=>sf("admin_status",e.target.value)}><option value="pending">Pending</option><option value="follow_required">Follow Required</option><option value="resolved">Resolved</option><option value="escalated">Escalated</option></select></div>
+          </div>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:24}}>
+        <button className="bs" onClick={()=>{setView("list");setEditing(null);}}>Cancel</button>
+        <button className="bg" onClick={()=>{sf("approval_status",isBA?"submitted":"approved");doSave();}} style={{flex:1,justifyContent:"center"}}><I n="ok" s={16}/>{editing?"Update":isBA?"Submit Report":"Save & Approve"}</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div>
+      {highRemarks>0&&<div className="info info-err" style={{marginBottom:14}}><I n="alert" s={15}/><strong>{highRemarks} High Priority Remark{highRemarks>1?"s":""} need attention!</strong></div>}
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <button className="bg" onClick={openNew}><I n="plus" s={15}/>New Activity Report</button>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="ch"><I n="set" s={16} c="var(--txd)"/><div className="ct" style={{color:"var(--txd)"}}>Filters</div></div>
+        <div className="cb">
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {isAdmin&&<select className="fsel" style={{flex:1,minWidth:120}} value={filter.ba} onChange={e=>setFilter(p=>({...p,ba:e.target.value}))}><option value="">All BAs</option>{bas.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}
+            <input className="fi" style={{flex:1,minWidth:100}} placeholder="City" value={filter.city} onChange={e=>setFilter(p=>({...p,city:e.target.value}))}/>
+            <input className="fi" style={{flex:1,minWidth:100}} placeholder="Brand" value={filter.brand} onChange={e=>setFilter(p=>({...p,brand:e.target.value}))}/>
+            <input className="fi" style={{flex:1,minWidth:120}} type="date" value={filter.date} onChange={e=>setFilter(p=>({...p,date:e.target.value}))}/>
+            <select className="fsel" style={{flex:1,minWidth:100}} value={filter.status} onChange={e=>setFilter(p=>({...p,status:e.target.value}))}><option value="">All Status</option><option value="pending">Pending</option><option value="solved">Solved</option></select>
+            <button className="bs" onClick={()=>setFilter({ba:"",city:"",brand:"",date:"",status:""})}>Clear</button>
+          </div>
+        </div>
+      </div>
+      {acts.length===0&&<div style={{textAlign:"center",padding:"50px 20px",color:"var(--txd)"}}><I n="map" s={48} c="var(--txd)"/><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16,color:"var(--tx)"}}>No Activity Reports</div><div style={{fontSize:13,marginTop:6}}>Tap New Activity Report to start</div></div>}
+      {acts.map(act=>{
+        const ba=(data.users||[]).find(u=>u.id===act.ba_id);
+        const sup=(data.users||[]).find(u=>u.id===act.supervisor_id);
+        const hrs=calcHours(act.punch_in,act.punch_out,act.break_start,act.break_end);
+        const hasHigh=act.ba_remark_cat==="high"||act.sup_remark_cat==="high";
+        return(
+          <div key={act.id} style={{background:"var(--d2)",border:"1px solid "+(hasHigh?"var(--rd)":"var(--bo)"),borderRadius:14,padding:16,marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10}}>
+              <div>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{act.store_name}</div>
+                <div style={{fontSize:12,color:"var(--txd)"}}>{act.city} · {act.brand} · {act.date}</div>
+                <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>BA: <span style={{color:"var(--gr)"}}>{ba?.name||"—"}</span> · Sup: <span style={{color:"var(--bl)"}}>{sup?.name||"—"}</span></div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+                <span style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:20,padding:"2px 10px",fontSize:11,textTransform:"capitalize"}}>{act.type}</span>
+                <span style={{fontSize:11,color:"var(--txd)"}}>{hrs}</span>
+              </div>
+            </div>
+            {act.type==="productive"&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+              {[["Intercept",act.total_interceptions||0,"var(--g)"],["Buyers",act.total_productive||0,"var(--gr)"],["KG",act.total_kg||0,"var(--bl)"],["PCs",act.total_pcs||0,"var(--or)"]].map(([l,v,col])=>(
+                <div key={l} style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"6px 4px"}}>
+                  <div style={{fontSize:10,color:"var(--txd)"}}>{l}</div>
+                  <div style={{fontFamily:"Rajdhani",fontSize:16,color:col}}>{v}</div>
+                </div>
+              ))}
+            </div>}
+            {act.type==="gifting"&&<div style={{fontSize:13,color:"var(--txd)",marginBottom:8}}>Total Gifts: <strong style={{color:"var(--g)"}}>{(act.gift_items||[]).reduce((s,x)=>s+Number(x.qty||0),0)}</strong></div>}
+            {act.type==="sampling"&&<div style={{fontSize:13,color:"var(--txd)",marginBottom:8}}>Total Samples: <strong style={{color:"var(--g)"}}>{(act.sampling_items||[]).reduce((s,x)=>s+Number(x.qty||0),0)}</strong></div>}
+            {act.ba_remark&&<div style={{background:catBg(act.ba_remark_cat),border:"1px solid "+catColor(act.ba_remark_cat),borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"var(--txd)"}}>BA Remark</span><span style={{fontSize:10,color:catColor(act.ba_remark_cat),fontWeight:600,textTransform:"uppercase"}}>{act.ba_remark_cat} · {act.ba_remark_status}</span></div>
+              <div style={{fontSize:13,marginTop:4}}>{act.ba_remark}</div>
+              {isAdmin&&act.ba_remark_status==="pending"&&<button className="bg" style={{marginTop:6,fontSize:11,padding:"3px 10px"}} onClick={()=>{const d={...data,activities:data.activities.map(a=>a.id===act.id?{...a,ba_remark_status:"solved"}:a)};setData(d);save(d);toast("Solved!");}}>Mark Solved</button>}
+            </div>}
+            {act.sup_remark&&<div style={{background:catBg(act.sup_remark_cat),border:"1px solid "+catColor(act.sup_remark_cat),borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"var(--txd)"}}>Supervisor Remark</span><span style={{fontSize:10,color:catColor(act.sup_remark_cat),fontWeight:600,textTransform:"uppercase"}}>{act.sup_remark_cat} · {act.sup_remark_status}</span></div>
+              <div style={{fontSize:13,marginTop:4}}>{act.sup_remark}</div>
+              {isAdmin&&act.sup_remark_status==="pending"&&<button className="bg" style={{marginTop:6,fontSize:11,padding:"3px 10px"}} onClick={()=>{const d={...data,activities:data.activities.map(a=>a.id===act.id?{...a,sup_remark_status:"solved"}:a)};setData(d);save(d);toast("Solved!");}}>Mark Solved</button>}
+            </div>}
+            <div style={{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--bo)",flexWrap:"wrap"}}>
+              <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:600,background:act.approval_status==="approved"?"rgba(46,204,113,.12)":act.approval_status==="submitted"?"rgba(58,155,213,.12)":act.approval_status==="rejected"?"rgba(231,76,60,.12)":"rgba(201,168,76,.12)",color:act.approval_status==="approved"?"var(--gr)":act.approval_status==="submitted"?"var(--bl)":act.approval_status==="rejected"?"var(--rd)":"var(--g)"}}>{act.approval_status==="approved"?"✅ Approved":act.approval_status==="submitted"?"⏳ Pending Approval":act.approval_status==="rejected"?"❌ Rejected":"📝 Draft"}</span>
+              {(isAdmin||isSup)&&act.approval_status==="submitted"&&<button className="bg" style={{fontSize:12,padding:"5px 12px"}} onClick={()=>{const d={...data,activities:data.activities.map(a=>a.id===act.id?{...a,approval_status:"approved"}:a)};setData(d);save(d);const ba2=(data.users||[]).find(u=>u.id===act.ba_id);if(ba2?.phone)sendWA(ba2.phone,"✅ Shinkore Marketing\nYour activity report approved!\nStore: "+act.store_name+"\nDate: "+act.date);toast("Approved! BA notified.");}}><I n="ok" s={13}/>Approve</button>}
+              {(isAdmin||isSup)&&act.approval_status==="submitted"&&<button className="brd" style={{fontSize:12}} onClick={()=>{const reason=prompt("Rejection reason:");if(!reason)return;const d={...data,activities:data.activities.map(a=>a.id===act.id?{...a,approval_status:"rejected",rejection_reason:reason}:a)};setData(d);save(d);const ba2=(data.users||[]).find(u=>u.id===act.ba_id);if(ba2?.phone)sendWA(ba2.phone,"❌ Shinkore Marketing\nActivity report rejected.\nReason: "+reason+"\nPlease edit and resubmit.");toast("Rejected. BA notified.");}}><I n="del" s={13}/>Reject</button>}
+              <button className="bs" onClick={()=>openEdit(act)} style={{fontSize:12}}><I n="edit" s={13}/>Edit</button>
+              <button className="bs" onClick={()=>printActivity(act)} style={{fontSize:12}}><I n="pdf" s={13}/>PDF</button>
+              <button className="bw" onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===act.ba_id);sendWA(ADMIN_PHONES[0],"Activity: "+act.type+" | "+act.store_name+", "+act.city+"\nBA: "+(ba2?.name||"")+"\nDate: "+act.date);}} style={{fontSize:12}}><I n="wa" s={13}/>Share</button>
+              {isAdmin&&<button className="brd" onClick={()=>{if(!confirm("Delete?"))return;const d={...data,activities:data.activities.filter(a=>a.id!==act.id)};setData(d);save(d);toast("Deleted.");}} style={{marginLeft:"auto",fontSize:12}}><I n="del" s={13}/>Delete</button>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── DAILY PLAN PAGE ──────────────────────────────────────────────────────────
+function DailyPlanPage({user,data,setData,toast}){
+  const [show,setShow]=useState(false);
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const emptyP={id:"",date:new Date().toISOString().slice(0,10),ba_id:"",supervisor_id:"",client_id:"",brand:"",city:"",store_name:"",location_type:"instore",expected_interceptions:0,expected_sales:0,notes:"",status:"pending"};
+  const [f,setF]=useState(emptyP);
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const bas=(data.users||[]).filter(u=>u.role==="ba");
+  const sups=(data.users||[]).filter(u=>u.role==="supervisor");
+  const plans=(data.daily_plans||[]).filter(p=>p.date===date);
+
+  const doSave=()=>{
+    if(!f.ba_id||!f.city||!f.store_name)return toast("BA, city and store required.");
+    const client=data.clients?.find(x=>x.id===f.client_id);
+    const rec={...f,id:f.id||genId(),brand:f.brand||(client?.brand||"")};
+    const d={...data,daily_plans:[...(data.daily_plans||[]).filter(x=>x.id!==rec.id),rec]};
+    const ba=(data.users||[]).find(u=>u.id===rec.ba_id);
+    if(ba?.phone)sendWA(ba.phone,"📋 *Shinkore Marketing — Daily Plan*\n\nDate: "+rec.date+"\nStore: "+rec.store_name+", "+rec.city+"\nBrand: "+rec.brand+"\nLocation: "+rec.location_type+"\nExpected Interceptions: "+rec.expected_interceptions+"\nExpected Sales: "+rec.expected_sales+"\n\nPlease submit activity report by end of day.\n— Admin");
+    setData(d);save(d);setShow(false);toast("Plan created! BA notified.");
+  };
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        <input className="fi" type="date" value={date} onChange={e=>setDate(e.target.value)} style={{maxWidth:160}}/>
+        <button className="bg" onClick={()=>{setF({...emptyP,date});setShow(true)}}><I n="plus" s={15}/>Create Plan</button>
+      </div>
+      {plans.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>
+        <I n="cal" s={48} c="var(--txd)"/>
+        <div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16,color:"var(--tx)"}}>No Plans for {date}</div>
+        <div style={{fontSize:13,marginTop:6}}>Create daily activity plans for your BAs</div>
+      </div>}
+      {plans.map(p=>{
+        const ba=(data.users||[]).find(u=>u.id===p.ba_id);
+        const sup=(data.users||[]).find(u=>u.id===p.supervisor_id);
+        const act=(data.activities||[]).find(a=>a.ba_id===p.ba_id&&a.date===p.date);
+        return(
+          <div key={p.id} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:16,marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{p.store_name}</div>
+                <div style={{fontSize:12,color:"var(--txd)"}}>{p.city} · {p.brand} · {p.location_type}</div>
+                <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>BA: <span style={{color:"var(--gr)"}}>{ba?.name||"—"}</span>{sup?<span> · Sup: <span style={{color:"var(--bl)"}}>{sup.name}</span></span>:""}</div>
+              </div>
+              <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:600,background:act?"rgba(46,204,113,.12)":"rgba(240,165,0,.12)",color:act?"var(--gr)":"var(--or)"}}>{act?"✅ Submitted":"⏳ Pending"}</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+              <div style={{background:"var(--d3)",borderRadius:8,padding:"8px 12px"}}>
+                <div style={{fontSize:10,color:"var(--txd)"}}>Expected Interceptions</div>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--g)"}}>{p.expected_interceptions}</div>
+                {act&&<div style={{fontSize:11,color:Number(act.total_interceptions)>=Number(p.expected_interceptions)?"var(--gr)":"var(--rd)"}}>Actual: {act.total_interceptions||0}</div>}
+              </div>
+              <div style={{background:"var(--d3)",borderRadius:8,padding:"8px 12px"}}>
+                <div style={{fontSize:10,color:"var(--txd)"}}>Expected Sales (PCs)</div>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--g)"}}>{p.expected_sales}</div>
+                {act&&<div style={{fontSize:11,color:Number(act.total_pcs)>=Number(p.expected_sales)?"var(--gr)":"var(--rd)"}}>Actual: {act.total_pcs||0}</div>}
+              </div>
+            </div>
+            {p.notes&&<div style={{fontSize:12,color:"var(--txd)",marginBottom:10}}>Note: {p.notes}</div>}
+            <div style={{display:"flex",gap:8}}>
+              <button className="bw" onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===p.ba_id);if(ba2)sendWA(ba2.phone,"📋 Reminder: Please submit your activity report for today.\nStore: "+p.store_name+"\n— Shinkore Marketing");}} style={{fontSize:12}}><I n="wa" s={13}/>Remind BA</button>
+              <button className="brd" onClick={()=>{const d={...data,daily_plans:(data.daily_plans||[]).filter(x=>x.id!==p.id)};setData(d);save(d);toast("Deleted.");}} style={{marginLeft:"auto",fontSize:12}}><I n="del" s={13}/>Delete</button>
+            </div>
+          </div>
+        );
+      })}
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">Create Daily Plan</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
+            <div className="mb">
+              <div className="frow">
+                <div className="fg"><label className="fl">Date</label><input className="fi" type="date" value={f.date} onChange={e=>sf("date",e.target.value)}/></div>
+                <div className="fg"><label className="fl">Location Type</label><select className="fsel" value={f.location_type} onChange={e=>sf("location_type",e.target.value)}><option value="instore">In-Store</option><option value="doortodoor">Door to Door</option><option value="stall">Stall</option></select></div>
+              </div>
+              <div className="fg"><label className="fl">Assign BA</label><select className="fsel" value={f.ba_id} onChange={e=>sf("ba_id",e.target.value)}><option value="">-- Select BA --</option>{bas.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+              <div className="fg"><label className="fl">Supervisor</label><select className="fsel" value={f.supervisor_id} onChange={e=>sf("supervisor_id",e.target.value)}><option value="">-- Select --</option>{sups.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+              <div className="fg"><label className="fl">Client</label><select className="fsel" value={f.client_id} onChange={e=>{sf("client_id",e.target.value);const cl=data.clients?.find(x=>x.id===e.target.value);if(cl)sf("brand",cl.brand);}}><option value="">-- Select Client --</option>{(data.clients||[]).map(cl=><option key={cl.id} value={cl.id}>{cl.name} ({cl.brand})</option>)}</select></div>
+              <div className="frow">
+                <div className="fg"><label className="fl">City</label><input className="fi" value={f.city} onChange={e=>sf("city",e.target.value)} placeholder="e.g. Abbottabad"/></div>
+                <div className="fg"><label className="fl">Store Name</label><input className="fi" value={f.store_name} onChange={e=>sf("store_name",e.target.value)} placeholder="e.g. Gilani Mart"/></div>
+              </div>
+              <div className="fg"><label className="fl">Brand</label><input className="fi" value={f.brand} onChange={e=>sf("brand",e.target.value)} placeholder="e.g. Brite"/></div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Expected Interceptions</label><input className="fi" type="number" value={f.expected_interceptions} onChange={e=>sf("expected_interceptions",e.target.value)}/></div>
+                <div className="fg"><label className="fl">Expected Sales (PCs)</label><input className="fi" type="number" value={f.expected_sales} onChange={e=>sf("expected_sales",e.target.value)}/></div>
+              </div>
+              <div className="fg"><label className="fl">Notes</label><input className="fi" value={f.notes} onChange={e=>sf("notes",e.target.value)} placeholder="Instructions for BA"/></div>
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>Create & Notify BA</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CLIENTS PAGE ─────────────────────────────────────────────────────────────
+function ClientsPage({user,data,setData,toast}){
+  const [show,setShow]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const emptyC={name:"",brand:"",phone:"",email:"",pin:"",active:true};
+  const [f,setF]=useState(emptyC);
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  const doSave=()=>{
+    if(!f.name||!f.brand)return toast("Name and brand required.");
+    const d={...data};
+    if(editing)d.clients=d.clients.map(c=>c.id===editing.id?{...c,...f}:c);
+    else d.clients=[...(d.clients||[]),{id:genId(),...f}];
+    setData(d);save(d);setShow(false);toast(editing?"Updated!":"Client added!");
+  };
+
+  const clientActivities=(clientId)=>{
+    const client=data.clients?.find(c=>c.id===clientId);
+    if(!client)return[];
+    return(data.activities||[]).filter(a=>a.brand&&a.brand.toLowerCase().includes(client.brand.toLowerCase())&&a.approval_status==="approved");
+  };
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+        <button className="bg" onClick={()=>{setEditing(null);setF(emptyC);setShow(true)}}><I n="plus" s={15}/>Add Client</button>
+      </div>
+      {(data.clients||[]).length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><I n="users" s={48} c="var(--txd)"/><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16,color:"var(--tx)"}}>No Clients Yet</div><div style={{fontSize:13,marginTop:6}}>Add your first client</div></div>}
+      {(data.clients||[]).map(client=>{
+        const acts=clientActivities(client.id);
+        const totalInterceptions=acts.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+        const totalSalesKg=acts.reduce((s,a)=>s+Number(a.total_kg||0),0);
+        const totalSalesPcs=acts.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+        return(
+          <div key={client.id} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:16,marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+              <div>
+                <div style={{fontFamily:"Rajdhani",fontSize:20,fontWeight:700,color:"var(--g)"}}>{client.name}</div>
+                <div style={{fontSize:13,color:"var(--txd)"}}>Brand: {client.brand}</div>
+                {client.phone&&<div style={{fontSize:12,color:"var(--txd)"}}>{client.phone}</div>}
+              </div>
+              <span style={{background:client.active?"rgba(46,204,113,.12)":"rgba(231,76,60,.12)",color:client.active?"var(--gr)":"var(--rd)",border:"1px solid "+(client.active?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)"),borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>{client.active?"Active":"Inactive"}</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+              <div style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>Activities</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--g)"}}>{acts.length}</div></div>
+              <div style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>Interceptions</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--bl)"}}>{totalInterceptions}</div></div>
+              <div style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>Sales KG</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--gr)"}}>{totalSalesKg}</div></div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button className="bs" onClick={()=>{setEditing(client);setF({name:client.name,brand:client.brand,phone:client.phone||"",email:client.email||"",pin:client.pin||"",active:client.active});setShow(true);}} style={{fontSize:12}}><I n="edit" s={13}/>Edit</button>
+              <button className="bw" onClick={()=>sendWA(client.phone,"Hello "+client.name+", this is Shinkore Marketing. Here is a summary of your brand "+client.brand+" activities: "+acts.length+" activities completed, "+totalInterceptions+" interceptions, "+totalSalesKg+"kg sales.")} style={{fontSize:12}}><I n="wa" s={13}/>Send Summary</button>
+            </div>
+          </div>
+        );
+      })}
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">{editing?"Edit Client":"Add Client"}</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
+            <div className="mb">
+              <div className="frow">
+                <div className="fg"><label className="fl">Client Name</label><input className="fi" value={f.name} onChange={e=>sf("name",e.target.value)} placeholder="e.g. Unilever"/></div>
+                <div className="fg"><label className="fl">Brand</label><input className="fi" value={f.brand} onChange={e=>sf("brand",e.target.value)} placeholder="e.g. Brite"/></div>
+              </div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="03001234567"/></div>
+                <div className="fg"><label className="fl">PIN (client login)</label><input className="fi" type="password" value={f.pin} onChange={e=>sf("pin",e.target.value)} placeholder="4 digits"/></div>
+              </div>
+              <div className="fg"><label className="fl">Email (optional)</label><input className="fi" value={f.email} onChange={e=>sf("email",e.target.value)} placeholder="client@email.com"/></div>
+              <div className="fg"><label className="fl">Status</label><select className="fsel" value={f.active} onChange={e=>sf("active",e.target.value==="true")}><option value="true">Active</option><option value="false">Inactive</option></select></div>
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save":"Add Client"}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CLIENT ACTIVITY PDF ──────────────────────────────────────────────────────
+function ClientPDFPage({user,data,toast}){
+  const [clientId,setClientId]=useState("");
+  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+  const [preview,setPreview]=useState(false);
+
+  const client=(data.clients||[]).find(c=>c.id===clientId);
+  const acts=(data.activities||[]).filter(a=>
+    a.approval_status==="approved"&&
+    a.date&&a.date.startsWith(month)&&
+    client&&a.brand&&a.brand.toLowerCase().includes(client.brand.toLowerCase())
+  );
+
+  const totalInterceptions=acts.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+  const totalBuyers=acts.reduce((s,a)=>s+Number(a.total_productive||0),0);
+  const totalKg=acts.reduce((s,a)=>s+Number(a.total_kg||0),0);
+  const totalPcs=acts.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+  const totalGifts=acts.reduce((s,a)=>s+(a.gift_items||[]).reduce((x,i)=>x+Number(i.qty||0),0),0);
+  const totalSamples=acts.reduce((s,a)=>s+(a.sampling_items||[]).reduce((x,i)=>x+Number(i.qty||0),0),0);
+  const cities=[...new Set(acts.map(a=>a.city).filter(Boolean))];
+  const stores=[...new Set(acts.map(a=>a.store_name).filter(Boolean))];
+
+  const generatePDF=()=>{
+    if(!client)return toast("Select a client first.");
+    if(acts.length===0)return toast("No approved activities found for this period.");
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;padding:40px;color:#1a1a1a;max-width:800px;margin:0 auto}
+.header{padding-bottom:20px;border-bottom:3px solid #C9A84C;margin-bottom:24px}
+.co{font-size:28px;font-weight:700;color:#C9A84C;letter-spacing:2px}
+.co-sub{font-size:12px;color:#888;margin-top:4px}
+.report-title{font-size:22px;font-weight:700;margin-top:16px;color:#1a1a1a}
+.report-sub{font-size:13px;color:#888;margin-top:4px}
+.section{margin-bottom:24px}
+.sec-title{font-size:16px;font-weight:700;background:#f5f0e8;padding:10px 14px;border-left:4px solid #C9A84C;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.stat{background:#f9f6ef;border:1px solid #e8d8a0;border-radius:10px;padding:16px;text-align:center}
+.stat-val{font-size:32px;font-weight:700;color:#C9A84C}
+.stat-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{background:#C9A84C;color:#fff;padding:10px 12px;font-size:12px;text-align:left}
+td{padding:10px 12px;border-bottom:1px solid #f0e8d0;font-size:13px}
+tr:nth-child(even) td{background:#fdfaf4}
+.footer{margin-top:32px;padding-top:16px;border-top:1px solid #e0d0b0;font-size:11px;color:#aaa;text-align:center}
+.badge{display:inline-block;background:#e8f4ec;color:#1a8a4a;border:1px solid #a0d8b8;border-radius:20px;padding:2px 12px;font-size:11px;font-weight:600}
+</style></head><body>
+<div class="header">
+  <div class="co">SHINKORE MARKETING</div>
+  <div class="co-sub">CEO: Khalid Orakzai | Civil Officer Col Office 28 | 03135443656 | www.appabbottabad.com</div>
+  <div class="report-title">Client Activity Report</div>
+  <div class="report-sub">Prepared for: <strong>${client.name}</strong> | Brand: <strong>${client.brand}</strong> | Period: <strong>${month}</strong></div>
+</div>
+
+<div class="section">
+  <div class="sec-title">Performance Summary</div>
+  <div class="stats">
+    <div class="stat"><div class="stat-val">${acts.length}</div><div class="stat-label">Total Activities</div></div>
+    <div class="stat"><div class="stat-val">${totalInterceptions}</div><div class="stat-label">Total Interceptions</div></div>
+    <div class="stat"><div class="stat-val">${totalBuyers}</div><div class="stat-label">Productive Buyers</div></div>
+    <div class="stat"><div class="stat-val">${totalKg} kg</div><div class="stat-label">Total Sales KG</div></div>
+    <div class="stat"><div class="stat-val">${totalPcs}</div><div class="stat-label">Total Sales PCs</div></div>
+    ${totalGifts>0?'<div class="stat"><div class="stat-val">'+totalGifts+'</div><div class="stat-label">Total Gifts</div></div>':""}
+    ${totalSamples>0?'<div class="stat"><div class="stat-val">'+totalSamples+'</div><div class="stat-label">Total Samples</div></div>':""}
+  </div>
+  <div style="margin-top:8px;font-size:13px;color:#555">
+    <strong>Cities covered:</strong> ${cities.join(", ")||"—"}<br>
+    <strong>Stores covered:</strong> ${stores.length} stores
+  </div>
+</div>
+
+<div class="section">
+  <div class="sec-title">Activity Details</div>
+  <table>
+    <thead><tr><th>Date</th><th>Store</th><th>City</th><th>Type</th><th>BA</th><th>Interceptions</th><th>Sales PCs</th><th>Sales KG</th></tr></thead>
+    <tbody>
+    ${acts.map(a=>{
+      const ba=(data.users||[]).find(u=>u.id===a.ba_id);
+      return '<tr><td>'+a.date+'</td><td>'+a.store_name+'</td><td>'+a.city+'</td><td style="text-transform:capitalize">'+a.type+'</td><td>'+(ba?.name||"—")+'</td><td>'+(a.total_interceptions||0)+'</td><td>'+(a.total_pcs||0)+'</td><td>'+(a.total_kg||0)+' kg</td></tr>';
+    }).join("")}
+    <tr style="font-weight:700;background:#f5f0e8"><td colspan="5">TOTAL</td><td>${totalInterceptions}</td><td>${totalPcs}</td><td>${totalKg} kg</td></tr>
+    </tbody>
+  </table>
+</div>
+
+${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-title">Activity Photos</div><div style="display:flex;flex-wrap:wrap;gap:10px">'+acts.flatMap(a=>(a.photos||[]).map(p=>'<img src="'+p.url+'" style="width:150px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #e0d0b0"/>')).join("")+'</div></div>':""}
+
+<div style="display:flex;justify-content:space-between;margin-top:40px;padding-top:16px;border-top:1px solid #e0d0b0">
+  <div style="text-align:center;width:180px"><div style="border-top:1px solid #999;padding-top:8px;font-size:12px;color:#555">Prepared by<br><strong>Khalid Orakzai</strong><br>CEO, Shinkore Marketing</div></div>
+  <div style="text-align:center;width:180px"><div style="border-top:1px solid #999;padding-top:8px;font-size:12px;color:#555">Client Representative<br><strong>${client.name}</strong></div></div>
+</div>
+
+<div class="footer">Shinkore Marketing | Generated ${new Date().toLocaleDateString("en-PK")} | www.appabbottabad.com | This report is confidential</div>
+</body></html>`;
+    openPrint(html);
+  };
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:16}}>
+        <div className="ch"><I n="pdf" s={16} c="var(--g)"/><div><div className="ct">Generate Client Report</div><div className="cs">Professional PDF for your client</div></div></div>
+        <div className="cb">
+          <div className="frow">
+            <div className="fg"><label className="fl">Select Client</label>
+              <select className="fsel" value={clientId} onChange={e=>setClientId(e.target.value)}>
+                <option value="">-- Select Client --</option>
+                {(data.clients||[]).map(cl=><option key={cl.id} value={cl.id}>{cl.name} ({cl.brand})</option>)}
+              </select>
+            </div>
+            <div className="fg"><label className="fl">Month</label>
+              <input className="fi" type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
+            </div>
+          </div>
+          {client&&<div style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 16px",marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8}}>
+              <div><div style={{fontSize:10,color:"var(--txd)"}}>Activities</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--g)"}}>{acts.length}</div></div>
+              <div><div style={{fontSize:10,color:"var(--txd)"}}>Interceptions</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--bl)"}}>{totalInterceptions}</div></div>
+              <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales KG</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--gr)"}}>{totalKg}</div></div>
+              <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales PCs</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--or)"}}>{totalPcs}</div></div>
+            </div>
+          </div>}
+          <button className="bg" onClick={generatePDF} style={{width:"100%",justifyContent:"center"}}><I n="pdf" s={16}/>Generate Client PDF Report</button>
+          {client&&acts.length>0&&<button className="bw" onClick={()=>{if(client.phone)sendWA(client.phone,"Dear "+client.name+", please find your brand "+client.brand+" activity report for "+month+" attached. Total: "+acts.length+" activities, "+totalInterceptions+" interceptions, "+totalKg+"kg sales. Contact us for the full report. — Shinkore Marketing 03135443656");else toast("No phone number for this client.");}} style={{width:"100%",justifyContent:"center",marginTop:8}}><I n="wa" s={16}/>Send Summary to Client via WhatsApp</button>}
+        </div>
+      </div>
+      {(data.clients||[]).length===0&&<div style={{textAlign:"center",padding:"30px",color:"var(--txd)",fontSize:13}}>No clients added yet. Go to Clients section to add your first client.</div>}
+    </div>
+  );
+}
+
+
+// ─── CLIENT DASHBOARD V2 ──────────────────────────────────────────────────────
+function ClientDashPage({user,data,toast}){
+  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+  const [tab,setTab]=useState("overview");
+  const client=(data.clients||[]).find(c=>c.id===user.id)||user;
+  const acts=(data.activities||[]).filter(a=>
+    a.approval_status==="approved"&&
+    a.brand&&client.brand&&
+    a.brand.toLowerCase().includes(client.brand.toLowerCase())&&
+    a.date&&a.date.startsWith(month)
+  ).sort((a,b)=>a.date>b.date?-1:1);
+
+  const totalInterceptions=acts.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
+  const totalBuyers=acts.reduce((s,a)=>s+Number(a.total_productive||0),0);
+  const totalKg=acts.reduce((s,a)=>s+Number(a.total_kg||0),0);
+  const totalPcs=acts.reduce((s,a)=>s+Number(a.total_pcs||0),0);
+  const totalGifts=acts.reduce((s,a)=>s+(a.gift_items||[]).reduce((x,i)=>x+Number(i.qty||0),0),0);
+  const totalSamples=acts.reduce((s,a)=>s+(a.sampling_items||[]).reduce((x,i)=>x+Number(i.qty||0),0),0);
+
+  // Store breakdown
+  const storeMap={};
+  acts.forEach(a=>{
+    const k=a.store_name+"|"+a.city;
+    if(!storeMap[k])storeMap[k]={store:a.store_name,city:a.city,acts:0,interceptions:0,pcs:0,kg:0};
+    storeMap[k].acts++;
+    storeMap[k].interceptions+=Number(a.total_interceptions||0);
+    storeMap[k].pcs+=Number(a.total_pcs||0);
+    storeMap[k].kg+=Number(a.total_kg||0);
+  });
+  const stores=Object.values(storeMap).sort((a,b)=>b.interceptions-a.interceptions);
+
+  // SKU breakdown
+  const skuMap={};
+  acts.forEach(a=>(a.sales_items||[]).forEach(i=>{
+    const k=i.name+(i.size?" "+i.size:"");
+    if(!skuMap[k])skuMap[k]={name:k,qty:0};
+    skuMap[k].qty+=Number(i.qty||0);
+  }));
+  const skus=Object.values(skuMap).sort((a,b)=>b.qty-a.qty);
+
+  // Gift breakdown
+  const giftMap={};
+  acts.forEach(a=>(a.gift_items||[]).forEach(i=>{
+    if(!giftMap[i.name])giftMap[i.name]={name:i.name,qty:0};
+    giftMap[i.name].qty+=Number(i.qty||0);
+  }));
+  const gifts=Object.values(giftMap).sort((a,b)=>b.qty-a.qty);
+
+  // BA breakdown
+  const baMap={};
+  acts.forEach(a=>{
+    const ba=(data.users||[]).find(u=>u.id===a.ba_id);
+    const k=a.ba_id;
+    if(!baMap[k])baMap[k]={name:ba?.name||"Unknown",acts:0,interceptions:0,pcs:0};
+    baMap[k].acts++;
+    baMap[k].interceptions+=Number(a.total_interceptions||0);
+    baMap[k].pcs+=Number(a.total_pcs||0);
+  });
+  const bas=Object.values(baMap).sort((a,b)=>b.interceptions-a.interceptions);
+
+  // City breakdown
+  const cityMap={};
+  acts.forEach(a=>{
+    if(!cityMap[a.city])cityMap[a.city]={city:a.city,acts:0,interceptions:0,pcs:0};
+    cityMap[a.city].acts++;
+    cityMap[a.city].interceptions+=Number(a.total_interceptions||0);
+    cityMap[a.city].pcs+=Number(a.total_pcs||0);
+  });
+  const cities=Object.values(cityMap).sort((a,b)=>b.acts-a.acts);
+
+  const photos=acts.flatMap(a=>(a.photos||[]).map(p=>({...p,store:a.store_name,date:a.date})));
+
+  const printReport=()=>{
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>body{font-family:sans-serif;padding:30px;max-width:800px;margin:0 auto;color:#1a1a1a}
+.co{font-size:24px;font-weight:700;color:#C9A84C}.sub{font-size:11px;color:#888}
+.title{font-size:20px;font-weight:700;margin:16px 0 4px}
+.sec{margin:20px 0}.st{font-size:14px;font-weight:700;background:#f5f0e8;padding:8px 12px;border-left:4px solid #C9A84C;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.stat{background:#f9f6ef;border:1px solid #e8d8a0;border-radius:8px;padding:12px;text-align:center}
+.sv{font-size:26px;font-weight:700;color:#C9A84C}.sl{font-size:10px;color:#888;text-transform:uppercase}
+table{width:100%;border-collapse:collapse}th{background:#C9A84C;color:#fff;padding:8px;font-size:12px;text-align:left}td{padding:8px;border-bottom:1px solid #f0e8d0;font-size:12px}
+.footer{margin-top:30px;font-size:10px;color:#aaa;text-align:center;border-top:1px solid #e0d0b0;padding-top:12px}
+</style></head><body>
+<div style="display:flex;align-items:center;gap:16px"><img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" style="width:60px;height:60px;border-radius:8px;object-fit:cover"/><div><div class="co">SHINKORE MARKETING</div><div class="sub">CEO: Khalid Orakzai | 03135443656 | www.appabbottabad.com</div></div></div>
+<div class="title">Brand Activity Report — ${client.brand}</div>
+<div class="sub">Client: ${client.name} | Period: ${month} | Generated: ${new Date().toLocaleDateString("en-PK")}</div>
+<div class="sec"><div class="st">Performance Summary</div>
+<div class="grid">
+<div class="stat"><div class="sv">${acts.length}</div><div class="sl">Activities</div></div>
+<div class="stat"><div class="sv">${totalInterceptions}</div><div class="sl">Interceptions</div></div>
+<div class="stat"><div class="sv">${totalBuyers}</div><div class="sl">Buyers</div></div>
+<div class="stat"><div class="sv">${totalKg}kg</div><div class="sl">Sales KG</div></div>
+<div class="stat"><div class="sv">${totalPcs}</div><div class="sl">Sales PCs</div></div>
+<div class="stat"><div class="sv">${totalGifts}</div><div class="sl">Gifts</div></div>
+</div></div>
+${skus.length>0?'<div class="sec"><div class="st">Sales by Product (SKU)</div><table><thead><tr><th>Product</th><th>Qty Sold</th></tr></thead><tbody>'+skus.map(s=>'<tr><td>'+s.name+'</td><td>'+s.qty+'</td></tr>').join('')+'</tbody></table></div>':""}
+${stores.length>0?'<div class="sec"><div class="st">Store-wise Performance</div><table><thead><tr><th>Store</th><th>City</th><th>Activities</th><th>Interceptions</th><th>Sales PCs</th></tr></thead><tbody>'+stores.map(s=>'<tr><td>'+s.store+'</td><td>'+s.city+'</td><td>'+s.acts+'</td><td>'+s.interceptions+'</td><td>'+s.pcs+'</td></tr>').join('')+'</tbody></table></div>':""}
+${gifts.length>0?'<div class="sec"><div class="st">Gifting Summary</div><table><thead><tr><th>Item</th><th>Total Distributed</th></tr></thead><tbody>'+gifts.map(g=>'<tr><td>'+g.name+'</td><td>'+g.qty+'</td></tr>').join('')+'</tbody></table></div>':""}
+${bas.length>0?'<div class="sec"><div class="st">BA Performance</div><table><thead><tr><th>BA Name</th><th>Activities</th><th>Interceptions</th><th>Sales PCs</th></tr></thead><tbody>'+bas.map(b=>'<tr><td>'+b.name+'</td><td>'+b.acts+'</td><td>'+b.interceptions+'</td><td>'+b.pcs+'</td></tr>').join('')+'</tbody></table></div>':""}
+<div class="sec"><div class="st">Staff Cost (Billed to Client)
+</div>
+<div class="sec"><div class="st">Daily Activity Log</div><table><thead><tr><th>Date</th><th>Store</th><th>City</th><th>Type</th><th>Interceptions</th><th>Sales PCs</th><th>KG</th></tr></thead><tbody>
+${acts.map(a=>{const ba=(data.users||[]).find(u=>u.id===a.ba_id);return'<tr><td>'+a.date+'</td><td>'+a.store_name+'</td><td>'+a.city+'</td><td>'+a.type+'</td><td>'+(a.total_interceptions||0)+'</td><td>'+(a.total_pcs||0)+'</td><td>'+(a.total_kg||0)+'kg</td></tr>';}).join('')}
+</tbody></table></div>
+${photos.length>0?'<div class="sec"><div class="st">Field Photos</div><div style="display:flex;flex-wrap:wrap;gap:8px">'+photos.map(p=>'<div style="text-align:center"><img src="'+p.url+'" style="width:130px;height:130px;object-fit:cover;border-radius:6px"/><div style="font-size:10px;color:#888;margin-top:2px">'+p.store+'</div></div>').join('')+'</div></div>':""}
+<div style="display:flex;justify-content:space-between;margin-top:30px">
+<div style="border-top:1px solid #999;width:160px;padding-top:6px;text-align:center;font-size:11px">Shinkore Marketing<br>Khalid Orakzai</div>
+<div style="border-top:1px solid #999;width:160px;padding-top:6px;text-align:center;font-size:11px">Client<br>${client.name}</div>
+</div>
+<div class="footer">Shinkore Marketing | Confidential | www.appabbottabad.com</div>
+</body></html>`;
+    openPrint(html);
+  };
+
+  const tabs=["overview","stores","products","bas","photos"];
+  const tabLabels={overview:"Overview",stores:"Stores",products:"Products",bas:"BAs",photos:"Photos"};
+
+  return(
+    <div>
+      <div style={{background:"var(--gd)",border:"1px solid var(--g)",borderRadius:14,padding:16,marginBottom:16}}>
+        <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)"}}>{client.name}</div>
+        <div style={{fontSize:13,color:"var(--txd)"}}>Brand: <strong style={{color:"var(--tx)"}}>{client.brand}</strong></div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        <input className="fi" type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{maxWidth:160}}/>
+        <button className="bg" onClick={printReport}><I n="pdf" s={15}/>Download PDF</button>
+        {client.phone&&<button className="bw" onClick={()=>sendWA(client.phone,"Dear "+client.name+", your "+client.brand+" brand report for "+month+": "+acts.length+" activities, "+totalInterceptions+" interceptions, "+totalKg+"kg sales, "+totalPcs+" pcs. Full PDF available on your dashboard. — Shinkore Marketing")}><I n="wa" s={15}/>Share</button>}
+      </div>
+
+      <div className="sg" style={{marginBottom:16}}>
+        {[["Activities",acts.length,"var(--g)"],["Interceptions",totalInterceptions,"var(--bl)"],["Buyers",totalBuyers,"var(--gr)"],["KG",totalKg+"kg","var(--or)"],["PCs",totalPcs,"var(--g)"],["Gifts",totalGifts,"var(--bl)"],["Samples",totalSamples,"var(--gr)"]].map(([l,v,col])=>(
+          <div key={l} className="sc"><div className="sv" style={{fontSize:18,color:col}}>{v}</div><div className="sl">{l}</div></div>
+        ))}
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+        {tabs.map(t=><button key={t} className={tab===t?"bg":"bs"} onClick={()=>setTab(t)} style={{fontSize:12,whiteSpace:"nowrap"}}>{tabLabels[t]}</button>)}
+      </div>
+
+      {tab==="overview"&&<div>
+        {acts.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><I n="map" s={48} c="var(--txd)"/><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>No Activities for {month}</div></div>}
+        {acts.map(act=>{
+          const ba=(data.users||[]).find(u=>u.id===act.ba_id);
+          return(<div key={act.id} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:12,padding:14,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <div><div style={{fontFamily:"Rajdhani",fontSize:16,fontWeight:700,color:"var(--g)"}}>{act.store_name}</div>
+              <div style={{fontSize:11,color:"var(--txd)"}}>{act.city} · {act.date} · {ba?.name||"—"}</div></div>
+              <span style={{fontSize:11,background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:20,padding:"2px 8px",textTransform:"capitalize"}}>{act.type}</span>
+            </div>
+            {act.type==="productive"&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:8}}>
+              {[["Intercept",act.total_interceptions||0,"var(--g)"],["Buyers",act.total_productive||0,"var(--gr)"],["KG",act.total_kg||0,"var(--bl)"],["PCs",act.total_pcs||0,"var(--or)"]].map(([l,v,col])=>(<div key={l} style={{textAlign:"center",background:"var(--d3)",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>{l}</div><div style={{fontFamily:"Rajdhani",fontSize:15,color:col}}>{v}</div></div>))}
+            </div>}
+            {(act.sales_items||[]).length>0&&<div style={{fontSize:12,color:"var(--txd)",marginBottom:6}}>Sales: {act.sales_items.map(s=>s.name+(s.size?" "+s.size:"")+" ("+s.qty+")").join(", ")}</div>}
+            {act.type==="gifting"&&(act.gift_items||[]).length>0&&<div style={{fontSize:12,color:"var(--txd)",marginBottom:6}}>Gifts: {act.gift_items.filter(g=>Number(g.qty)>0).map(g=>g.name+" ("+g.qty+")").join(", ")}</div>}
+            {(act.photos||[]).length>0&&<div style={{display:"flex",gap:4,marginTop:6}}>{act.photos.map(p=>(<img key={p.id} src={p.thumb||p.url} style={{width:50,height:50,borderRadius:4,objectFit:"cover",cursor:"pointer"}} onClick={()=>window.open(p.url,"_blank")}/>))}</div>}
+          </div>);
+        })}
+      </div>}
+
+      {tab==="stores"&&<div>
+        {stores.length===0&&<div style={{textAlign:"center",padding:"30px",color:"var(--txd)"}}>No store data yet</div>}
+        {stores.map((s,i)=>(<div key={i} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:12,padding:14,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div><div style={{fontFamily:"Rajdhani",fontSize:16,fontWeight:700,color:"var(--g)"}}>{s.store}</div><div style={{fontSize:12,color:"var(--txd)"}}>{s.city}</div></div>
+            <span style={{fontFamily:"Rajdhani",fontSize:14,color:"var(--g)"}}>{s.acts} visits</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+            {[["Interceptions",s.interceptions,"var(--bl)"],["Sales PCs",s.pcs,"var(--gr)"],["Sales KG",s.kg+"kg","var(--or)"]].map(([l,v,col])=>(<div key={l} style={{textAlign:"center",background:"var(--d3)",borderRadius:6,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>{l}</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:col}}>{v}</div></div>))}
+          </div>
+        </div>))}
+      </div>}
+
+      {tab==="products"&&<div>
+        {skus.length===0&&gifts.length===0&&<div style={{textAlign:"center",padding:"30px",color:"var(--txd)"}}>No product data yet</div>}
+        {skus.length>0&&<div className="card" style={{marginBottom:12}}>
+          <div className="ch"><I n="dash" s={16} c="var(--g)"/><div className="ct">Sales by SKU</div></div>
+          <div className="cb">
+            {skus.map((s,i)=>(<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid var(--bo)"}}>
+              <div style={{fontSize:13,fontWeight:600}}>{s.name}</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--g)"}}>{s.qty} pcs</div>
+            </div>))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",fontWeight:700}}>
+              <div>Total</div><div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--gr)"}}>{totalPcs} pcs</div>
+            </div>
+          </div>
+        </div>}
+        {gifts.length>0&&<div className="card">
+          <div className="ch"><I n="plus" s={16} c="var(--g)"/><div className="ct">Gifting Items</div></div>
+          <div className="cb">
+            {gifts.map((g,i)=>(<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid var(--bo)"}}>
+              <div style={{fontSize:13,fontWeight:600}}>{g.name}</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--bl)"}}>{g.qty}</div>
+            </div>))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",fontWeight:700}}>
+              <div>Total Gifts</div><div style={{fontFamily:"Rajdhani",fontSize:18,color:"var(--gr)"}}>{totalGifts}</div>
+            </div>
+          </div>
+        </div>}
+      </div>}
+
+      {tab==="bas"&&<div>
+        {bas.length===0&&<div style={{textAlign:"center",padding:"30px",color:"var(--txd)"}}>No BA data yet</div>}
+        {bas.map((b,i)=>(<div key={i} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:12,padding:14,marginBottom:10}}>
+          <div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:700,color:"var(--g)",marginBottom:10}}>{b.name}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+            {[["Activities",b.acts,"var(--g)"],["Interceptions",b.interceptions,"var(--bl)"],["Sales PCs",b.pcs,"var(--gr)"]].map(([l,v,col])=>(<div key={l} style={{textAlign:"center",background:"var(--d3)",borderRadius:6,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>{l}</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:col}}>{v}</div></div>))}
+          </div>
+        </div>))}
+      </div>}
+
+      {tab==="photos"&&<div>
+        {photos.length===0&&<div style={{textAlign:"center",padding:"30px",color:"var(--txd)"}}>No photos uploaded yet</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+          {photos.map((p,i)=>(<div key={i} style={{position:"relative"}}>
+            <img src={p.thumb||p.url} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8,cursor:"pointer"}} onClick={()=>window.open(p.url,"_blank")}/>
+            <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:9,padding:"2px 4px",borderRadius:"0 0 8px 8px"}}>{p.store} · {p.date}</div>
+          </div>))}
+        </div>
+      </div>}
+    </div>
+  );
+}
 // ─── COMING SOON ──────────────────────────────────────────────────────────────
 
 // ─── GOOGLE SHEETS SYNC PAGE ──────────────────────────────────────────────────
@@ -1980,7 +3107,10 @@ function SyncPage({data,setData,toast}){
     setData(d);save(d);toast("Sheets URL saved!");
   };
 
-  const syncSheet=async(sheet,rows)=>{
+  const exportCSV=(sheet,rows,headers)=>{const nl=String.fromCharCode(10);const h=headers.join(",")+nl;const r=rows.map(row=>row.map(x=>String(x||"")).join(",")).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download=sheet+".csv";a.click();
+};
+const syncSheet=async(sheet,rows)=>{
     if(!url) return addLog("No Apps Script URL set.",false);
     try{
       await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json"},
@@ -1995,57 +3125,57 @@ function SyncPage({data,setData,toast}){
     addLog("Starting full sync...");
 
     // STAFF
-    const staffRows=data.users.filter(u=>u.role!=="admin").map(u=>
+    const staffRows=(data.users||[]).filter(u=>u.role!=="admin").map(u=>
       [u.name,u.role==="ba"?"BA":"Supervisor",u.phone,u.team||"",u.daily_rate]);
     await syncSheet("Staff",staffRows);
 
     // STALLS
-    const stallRows=data.stalls.map(s=>
+    const stallRows=(data.stalls||[]).map(s=>
       [s.name,s.city,s.dept,s.client||"",s.from_date,s.to_date,s.client_charged,s.duty_start]);
     await syncSheet("Stalls",stallRows);
 
     // ALLOCATIONS
     const allocRows=data.allocations.map(a=>{
-      const u=data.users.find(x=>x.id===a.user_id);
-      const s=data.stalls.find(x=>x.id===a.stall_id);
+      const u=(data.users||[]).find(x=>x.id===a.user_id);
+      const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
       return[u?.name||"",u?.role||"",s?.name||"",s?.city||"",a.duty_start,a.daily_rate,a.from_date,a.to_date,a.active?"Active":"Ended"];
     });
     await syncSheet("Allocations",allocRows);
 
     // ATTENDANCE
-    const attRows=data.attendance.map(a=>{
-      const u=data.users.find(x=>x.id===a.user_id);
-      const s=data.stalls.find(x=>x.id===a.stall_id);
+    const attRows=(data.attendance||[]).map(a=>{
+      const u=(data.users||[]).find(x=>x.id===a.user_id);
+      const s=(data.stalls||[]).find(x=>x.id===a.stall_id);
       return[a.date,u?.name||"",u?.role||"",s?.name||"",s?.city||"",a.clock_in,a.clock_out||"",a.dist+"m"];
     });
     await syncSheet("Attendance",attRows);
 
     // CLIENT PAYMENTS
-    const cpRows=data.client_payments.map(p=>{
-      const s=data.stalls.find(x=>x.id===p.stall_id);
+    const cpRows=(data.client_payments||[]).map(p=>{
+      const s=(data.stalls||[]).find(x=>x.id===p.stall_id);
       return[p.date,p.activity,s?.name||"General",p.amount,p.status,p.notes||""];
     });
     await syncSheet("ClientPayments",cpRows);
 
     // HANDOVERS
-    const hoRows=data.handovers.map(h=>{
-      const u=data.users.find(x=>x.id===h.supervisor_id);
-      const s=data.stalls.find(x=>x.id===h.stall_id);
+    const hoRows=(data.handovers||[]).map(h=>{
+      const u=(data.users||[]).find(x=>x.id===h.supervisor_id);
+      const s=(data.stalls||[]).find(x=>x.id===h.stall_id);
       return[h.date_given,u?.name||"",s?.name||"General",h.amount_given,h.amount_returned||0,h.date_returned||"Pending",h.notes||""];
     });
     await syncSheet("Handovers",hoRows);
 
     // EXPENSES
-    const exRows=data.expenses.map(e=>{
-      const u=data.users.find(x=>x.id===e.user_id);
-      const s=data.stalls.find(x=>x.id===e.stall_id);
+    const exRows=(data.expenses||[]).map(e=>{
+      const u=(data.users||[]).find(x=>x.id===e.user_id);
+      const s=(data.stalls||[]).find(x=>x.id===e.stall_id);
       return[e.date,u?.name||"",e.type,e.amount,s?.name||"",e.notes||""];
     });
     await syncSheet("Expenses",exRows);
 
     // SALARY
     const salRows=data.salary.map(r=>{
-      const u=data.users.find(x=>x.id===r.user_id);
+      const u=(data.users||[]).find(x=>x.id===r.user_id);
       return[r.month,u?.name||"",u?.role||"",r.days_worked,r.daily_rate,r.bonus||0,r.deductions||0,r.total,r.status,r.notes||""];
     });
     await syncSheet("Salary",salRows);
@@ -2262,7 +3392,7 @@ function Soon({title}){
 export default function App(){
   const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");return s?JSON.parse(s):null;}catch{return null;}};
   const [user,setUser]=useState(getSaved);
-  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":"my-dash"):"dash";});
+  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="supervisor"?"dash":u.role==="client"?"client_dash":"my-dash"):"dash";});
   
   
   const [data,setData]=useState(initData());
@@ -2273,21 +3403,27 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA"};
 
-  if(!user) return <><style>{css}</style><Login onLogin={doLogin}/></>;
+  const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
   const isAdmin=user.role==="admin";
 
   const render=()=>{
     if(isAdmin){
       switch(page){
-        case "dash": return <AdminDash data={data}/>;
+        case "dash": return <AdminDash data={data} toast={toast}/>;
         case "staff": return <StaffPage data={data} setData={setData} toast={toast}/>;
         case "stalls": return <StallsPage data={data} setData={setData} toast={toast}/>;
         case "alloc": return <AllocPage data={data} setData={setData} toast={toast}/>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
+        case "personal": return <PersonalPage data={data} setData={setData} toast={toast}/>;
+        case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
+        case "client_dash": return <ClientDashPage user={user} data={data} toast={toast}/>;
         case "settings": return <SettingsPage data={data} setData={setData} toast={toast}/>;
         case "sync": return <SyncPage data={data} setData={setData} toast={toast}/>;
         case "apk": return <ApkPage/>;
@@ -2295,11 +3431,14 @@ export default function App(){
         case "salary": return <SalaryPage data={data} setData={setData} toast={toast}/>;
         default: return <AdminDash data={data}/>;
       }
+    } else if(user.role==="client"){
+      return <ClientDashPage user={user} data={data} toast={toast}/>;
     } else {
       switch(page){
         case "my-dash": return <MyDash user={user} data={data}/>;
         case "clock-in": return <ClockPage user={user} data={data} setData={setData} toast={toast}/>;
         case "my-salary": return <MySalaryPage user={user} data={data}/>;
+        case "my-activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         default: return <MyDash user={user} data={data}/>;
       }
     }
