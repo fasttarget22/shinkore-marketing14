@@ -2875,6 +2875,23 @@ function ClientsPage({user,data,setData,toast}){
               </div>
               <div className="fg"><label className="fl">Email (optional)</label><input className="fi" value={f.email} onChange={e=>sf("email",e.target.value)} placeholder="client@email.com"/></div>
               <div className="fg"><label className="fl">Status</label><select className="fsel" value={f.active} onChange={e=>sf("active",e.target.value==="true")}><option value="true">Active</option><option value="false">Inactive</option></select></div>
+                <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                  <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:10}}>🔐 Client Permissions — What they can see</div>
+                  {[{key:"perm_map",label:"🗺️ Store Locations Map",desc:"See their stores on map"},{key:"perm_distance",label:"📏 Live Distance",desc:"Distance from phone to stores"},{key:"perm_live",label:"🟢 Live Staff Status",desc:"Who is at store right now"},{key:"perm_sales",label:"📊 Sales & Activity Data",desc:"Performance reports"}].map(function(p){return(
+                    <div key={p.key} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--bo)"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:600}}>{p.label}</div>
+                        <div style={{fontSize:11,color:"var(--txd)"}}>{p.desc}</div>
+                      </div>
+                      <label style={{position:"relative",display:"inline-block",width:44,height:24,cursor:"pointer"}}>
+                        <input type="checkbox" checked={f[p.key]!==false} onChange={function(e){sf(p.key,e.target.checked);}} style={{opacity:0,width:0,height:0}}/>
+                        <span style={{position:"absolute",inset:0,borderRadius:24,transition:".3s",background:f[p.key]!==false?"var(--g)":"var(--bo)"}}>
+                          <span style={{position:"absolute",height:18,width:18,left:f[p.key]!==false?23:3,top:3,borderRadius:"50%",background:"#fff",transition:".3s"}}></span>
+                        </span>
+                      </label>
+                    </div>
+                  );})}
+                </div>
               <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save":"Add Client"}</button></div>
             </div>
           </div>
