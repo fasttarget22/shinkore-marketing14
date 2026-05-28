@@ -3682,20 +3682,20 @@ export default function App(){
         case "staff": return <StaffPage data={data} setData={setData} toast={toast}/>;
         case "stalls": return <StallsPage data={data} setData={setData} toast={toast}/>;
         case "alloc": return <AllocPage data={data} setData={setData} toast={toast}/>;
-        case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
+        case "attend": return <AttendancePage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         case "personal": return <PersonalPage data={data} setData={setData} toast={toast}/>;
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
-        case "client_dash": return <ClientDashPage user={user} data={data} toast={toast}/>;
+        case "client_dash": return <ClientDashPage user={user} data={data} toast={toast} setPage={setPage}/>;
         case "settings": return <SettingsPage data={data} setData={setData} toast={toast}/>;
         case "sync": return <SyncPage data={data} setData={setData} toast={toast}/>;
         case "apk": return <ApkPage/>;
         case "cash": return <CashPage data={data} setData={setData} toast={toast}/>;
         case "salary": return <SalaryPage data={data} setData={setData} toast={toast}/>;
-        default: return <AdminDash data={data}/>;
+        default: return <AdminDash data={data} toast={toast} setPage={setPage}/>;
       }
     } else if(user.role==="client"){
       return <ClientDashPage user={user} data={data} toast={toast}/>;
