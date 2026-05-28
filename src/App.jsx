@@ -3033,6 +3033,98 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
 }
 
 
+// ─── CLIENT STORE MAP (LEAFLET) ───────────────────────────────────────────────
+function ClientStoreMap({client,data}){
+  const mapRef=useRef(null);
+  const mapObj=useRef(null);
+  const [myLoc,setMyLoc]=useState(null);
+  const [gpsErr,setGpsErr]=useState("");
+  const today=new Date().toISOString().slice(0,10);
+  const myStores=(data.stalls||[]).filter(function(s){
+    if(!s.lat||!s.lng)return false;
+    const cn=(client.name||"").toLowerCase();
+    const cb=(client.brand||"").toLowerCase();
+    const sc=(s.client||"").toLowerCase();
+    const sn=(s.name||"").toLowerCase();
+    return (cn&&sc.includes(cn))||(cb&&(sc.includes(cb)||sn.includes(cb)));
+  });
+  const storeStatus=function(stallId){
+    const att=(data.attendance||[]).find(function(a){return a.stall_id===stallId&&a.date===today&&!a.clock_out;});
+    if(!att)return null;
+    const u=(data.users||[]).find(function(x){return x.id===att.user_id;});
+    return u?{name:u.name,role:u.role,time:att.clock_in}:null;
+  };
+  const getMyLocation=function(){
+    setGpsErr("");
+    if(!navigator.geolocation){setGpsErr("GPS not available");return;}
+    navigator.geolocation.getCurrentPosition(function(pos){
+      setMyLoc({lat:pos.coords.latitude,lng:pos.coords.longitude});
+    },function(){setGpsErr("Enable location to see distances");},{enableHighAccuracy:true,timeout:10000});
+  };
+  useEffect(function(){getMyLocation();},[]);
+  useEffect(function(){
+    if(!window.L||!mapRef.current||myStores.length===0)return;
+    if(mapObj.current){mapObj.current.remove();mapObj.current=null;}
+    const L=window.L;
+    const map=L.map(mapRef.current).setView([Number(myStores[0].lat),Number(myStores[0].lng)],12);
+    mapObj.current=map;
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+    const bounds=[];
+    myStores.forEach(function(s){
+      const lat=Number(s.lat),lng=Number(s.lng);
+      const st=storeStatus(s.id);
+      const color=st?"#2ecc71":"#e74c3c";
+      const icon=L.divIcon({className:"",html:'<div style="background:'+color+';width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>',iconSize:[26,26],iconAnchor:[13,26]});
+      L.marker([lat,lng],{icon:icon}).addTo(map).bindPopup("<b>"+s.name+"</b><br>"+s.city+"<br>"+(st?"🟢 "+st.name+" since "+st.time:"⚪ No staff present"));
+      bounds.push([lat,lng]);
+    });
+    if(myLoc){
+      const meIcon=L.divIcon({className:"",html:'<div style="background:#3a9bd5;width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 4px rgba(58,155,213,0.3)"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+      L.marker([myLoc.lat,myLoc.lng],{icon:meIcon}).addTo(map).bindPopup("📍 You are here");
+      bounds.push([myLoc.lat,myLoc.lng]);
+    }
+    if(bounds.length>1)map.fitBounds(bounds,{padding:[40,40]});
+    setTimeout(function(){map.invalidateSize();},200);
+    return function(){if(mapObj.current){mapObj.current.remove();mapObj.current=null;}};
+  },[myStores.length,myLoc]);
+  if(myStores.length===0)return(
+    <div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>
+      <div style={{fontSize:48}}>🗺️</div>
+      <div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>No stores with GPS yet</div>
+      <div style={{fontSize:13,marginTop:6}}>Stores appear here once admin sets their location.</div>
+    </div>
+  );
+  return(
+    <div>
+      {gpsErr&&<div className="info info-warn" style={{marginBottom:12}}><I n="alert" s={13}/>{gpsErr} <button onClick={getMyLocation} style={{marginLeft:8,background:"var(--g)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",fontSize:12,cursor:"pointer"}}>Retry</button></div>}
+      <div ref={mapRef} style={{width:"100%",height:340,borderRadius:14,overflow:"hidden",border:"1px solid var(--bo)",marginBottom:14,background:"var(--d3)"}}></div>
+      <div style={{display:"flex",gap:14,marginBottom:14,fontSize:12,color:"var(--txd)",justifyContent:"center"}}>
+        <span>🟢 Staff present</span><span>⚪ Empty</span>{myLoc&&<span>🔵 You</span>}
+      </div>
+      {myStores.map(function(s){
+        const st=storeStatus(s.id);
+        const dist=myLoc?haversine(myLoc.lat,myLoc.lng,Number(s.lat),Number(s.lng)):null;
+        const distStr=dist!==null?(dist>=1000?(dist/1000).toFixed(1)+" km":Math.round(dist)+" m"):null;
+        return(
+          <div key={s.id} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <I n="pin" s={16} c={st?"#2ecc71":"var(--txd)"}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
+                <div style={{fontSize:12,color:"var(--txd)"}}>{s.city}{distStr&&client.perm_distance!==false?" · 📏 "+distStr+" away":""}</div>
+              </div>
+              <a href={"https://maps.google.com/?q="+s.lat+","+s.lng} target="_blank" style={{fontSize:12,color:"var(--bl)",textDecoration:"none",whiteSpace:"nowrap"}}>Directions ↗</a>
+            </div>
+            {client.perm_live!==false&&<div style={{marginTop:8,fontSize:12,padding:"6px 10px",borderRadius:8,background:st?"rgba(46,204,113,.1)":"var(--d2)",border:"1px solid "+(st?"rgba(46,204,113,.25)":"var(--bo)"),color:st?"var(--g)":"var(--txd)"}}>
+              {st?"🟢 "+st.name+" ("+st.role+") since "+st.time:"⚪ No staff clocked in right now"}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── CLIENT DASHBOARD V2 ──────────────────────────────────────────────────────
 function ClientDashPage({user,data,toast}){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
@@ -3148,8 +3240,8 @@ ${photos.length>0?'<div class="sec"><div class="st">Field Photos</div><div style
     openPrint(html);
   };
 
-  const tabs=["overview","stores","products","bas","photos"];
-  const tabLabels={overview:"Overview",stores:"Stores",products:"Products",bas:"BAs",photos:"Photos"};
+  const tabs=[...(client.perm_map!==false?["map"]:[]),"overview","stores","products","bas","photos"];
+  const tabLabels={map:"🗺️ Live Map",overview:"Overview",stores:"Stores",products:"Products",bas:"BAs",photos:"Photos"};
 
   return(
     <div>
@@ -3174,6 +3266,7 @@ ${photos.length>0?'<div class="sec"><div class="st">Field Photos</div><div style
         {tabs.map(t=><button key={t} className={tab===t?"bg":"bs"} onClick={()=>setTab(t)} style={{fontSize:12,whiteSpace:"nowrap"}}>{tabLabels[t]}</button>)}
       </div>
 
+      {tab==="map"&&<ClientStoreMap client={client} data={data}/>}
       {tab==="overview"&&<div>
         {acts.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><I n="map" s={48} c="var(--txd)"/><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>No Activities for {month}</div></div>}
         {acts.map(act=>{
