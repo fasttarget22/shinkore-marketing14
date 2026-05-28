@@ -682,26 +682,13 @@ function StallsPage({data,setData,toast}){
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const calc=(fm)=>{const d=Number(fm.num_days)||1;const tc=(Number(fm.perm_charged)||0)+(Number(fm.ba_charged)||0)*d+(Number(fm.sup_charged)||0)*d+(Number(fm.other_charged)||0);const tx=(Number(fm.perm_cost)||0)+(Number(fm.ba_cost)||0)*d+(Number(fm.sup_cost)||0)*d+(Number(fm.other_cost)||0);return{tc,tx,profit:tc-tx};};
 
-  const [gpsCapturing,setGpsCapturing]=useState(false);
-  const [gpsAccuracy,setGpsAccuracy]=useState(null);
   const getMyLoc=()=>{
     if(!navigator.geolocation) return toast("GPS not available");
-    setGpsCapturing(true);
-    setGpsAccuracy(null);
     navigator.geolocation.getCurrentPosition(p=>{
-      const acc=Math.round(p.coords.accuracy);
       set("lat",p.coords.latitude.toFixed(6));
       set("lng",p.coords.longitude.toFixed(6));
-      setGpsAccuracy(acc);
-      setGpsCapturing(false);
-      if(acc<=20) toast("✅ Excellent GPS! Accuracy: "+acc+"m");
-      else if(acc<=50) toast("✅ Good GPS! Accuracy: "+acc+"m");
-      else if(acc<=100) toast("⚠️ Fair GPS. Accuracy: "+acc+"m. Try again outdoors.");
-      else toast("❌ Poor GPS ("+acc+"m). Move outside and retry.");
-    },e=>{
-      setGpsCapturing(false);
-      toast("GPS denied. Enable location in browser settings.");
-    },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+      toast("Location captured!");
+    },()=>toast("GPS denied."));
   };
 
   const openAdd=()=>{setEditing(null);setF(emptyF);setShow(true)};
@@ -755,7 +742,6 @@ function StallsPage({data,setData,toast}){
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:12}}>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Client</div><div style={{fontSize:13,fontWeight:600}}>{s.client||"—"}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Charged</div><div style={{fontSize:13,fontWeight:600,color:"var(--g)"}}>{formatPKR(s.client_charged)}</div></div>
-                  <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:13,fontWeight:600,color:s.lat&&s.lng?"var(--g)":"var(--rd)"}}>{s.lat&&s.lng?"🎯 Verified":"❌ Not Set"}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Duty Start</div><div style={{fontSize:13,fontWeight:600}}>{s.duty_start}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:12,color:"var(--bl)"}}>{Number(s.lat).toFixed(4)}, {Number(s.lng).toFixed(4)}</div></div>
                 </div>
@@ -799,19 +785,7 @@ function StallsPage({data,setData,toast}){
                   <input className="fi" placeholder="Latitude" value={f.lat} onChange={e=>set("lat",e.target.value)} style={{flex:1}}/>
                   <input className="fi" placeholder="Longitude" value={f.lng} onChange={e=>set("lng",e.target.value)} style={{flex:1}}/>
                 </div>
-                <button className="bg" onClick={getMyLoc} disabled={gpsCapturing} style={{width:"100%",justifyContent:"center",opacity:gpsCapturing?0.7:1}}>
-                  <I n="gps" s={14}/>{gpsCapturing?"📡 Getting GPS...":"Capture My Location"}
-                </button>
-                {gpsAccuracy!==null&&<div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:gpsAccuracy<=20?"rgba(46,204,113,.15)":gpsAccuracy<=50?"rgba(46,204,113,.1)":gpsAccuracy<=100?"rgba(240,165,0,.15)":"rgba(231,76,60,.15)",border:"1px solid "+(gpsAccuracy<=50?"rgba(46,204,113,.3)":gpsAccuracy<=100?"rgba(240,165,0,.3)":"rgba(231,76,60,.3)"),fontSize:12,display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:16}}>{gpsAccuracy<=20?"🎯":gpsAccuracy<=50?"✅":gpsAccuracy<=100?"⚠️":"❌"}</span>
-                  <div>
-                    <div style={{fontWeight:600,color:gpsAccuracy<=50?"var(--g)":gpsAccuracy<=100?"var(--or)":"var(--rd)"}}>{gpsAccuracy<=20?"Excellent":gpsAccuracy<=50?"Good":gpsAccuracy<=100?"Fair":"Poor"} GPS — {gpsAccuracy}m accuracy</div>
-                    <div style={{color:"var(--txd)",fontSize:11}}>{gpsAccuracy<=100?"Location saved! ✓":"Move outdoors and try again"}</div>
-                  </div>
-                </div>}
-                {f.lat&&f.lng&&<div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"rgba(58,155,213,.1)",border:"1px solid rgba(58,155,213,.25)",fontSize:12,color:"var(--bl)"}}>
-                  📍 Saved: {f.lat}, {f.lng} — <a href={"https://maps.google.com/?q="+f.lat+","+f.lng} target="_blank" style={{color:"var(--bl)"}}>View on Map ↗</a>
-                </div>}
+                <button className="bg" onClick={getMyLoc} style={{width:"100%",justifyContent:"center"}}><I n="gps" s={14}/>Capture My Location</button>
               </div>
               <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
                 <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>🏛️ Permission Details</div>
