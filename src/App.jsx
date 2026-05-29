@@ -4166,6 +4166,30 @@ export default function App(){
   const [syncState,setSyncState]=useState("synced");
   useEffect(()=>{setSyncStatusCb(setSyncState);},[]);
 
+  // Step 6: Pull fresh data from cloud on startup + every 30s, merge in.
+  useEffect(()=>{
+    var stop=false;
+    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_personal:"personal"};
+    var pull=async function(){
+      var remote=await loadFromSB();
+      if(!remote||stop)return;
+      setData(function(prev){
+        var merged={...prev};
+        Object.keys(mapTbl).forEach(function(tbl){
+          var key=mapTbl[tbl];
+          if(Array.isArray(remote[tbl])&&remote[tbl].length>=0){
+            merged[key]=remote[tbl];
+          }
+        });
+        localStorage.setItem("shinkore_v2",JSON.stringify(merged));
+        return merged;
+      });
+    };
+    pull();
+    var iv=setInterval(pull,30000);
+    return function(){stop=true;clearInterval(iv);};
+  },[]);
+
   const toast=(m)=>setToastMsg(m);
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
