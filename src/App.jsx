@@ -3255,8 +3255,7 @@ function ClientPDFPage({user,data,toast}){
   const stores=[...new Set(acts.map(a=>a.store_name).filter(Boolean))];
 
   const generatePDF=()=>{
-    if(!client)return toast("Select a client first.");
-    if(acts.length===0)return toast("No approved activities found for this period.");
+    var cl=client||{name:"Sample Client",brand:"Sample Brand"};
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');
@@ -3284,7 +3283,7 @@ tr:nth-child(even) td{background:#fdfaf4}
   <div class="co">SHINKORE MARKETING</div>
   <div class="co-sub">CEO: Khalid Orakzai | Civil Officer Col Office 28 | 03135443656 | www.appabbottabad.com</div>
   <div class="report-title">Client Activity Report</div>
-  <div class="report-sub">Prepared for: <strong>${client.name}</strong> | Brand: <strong>${client.brand}</strong> | Period: <strong>${month}</strong></div>
+  <div class="report-sub">Prepared for: <strong>${cl.name}</strong> | Brand: <strong>${cl.brand}</strong> | Period: <strong>${month}</strong></div>
 </div>
 
 <div class="section">
@@ -3323,7 +3322,7 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
 
 <div style="display:flex;justify-content:space-between;margin-top:40px;padding-top:16px;border-top:1px solid #e0d0b0">
   <div style="text-align:center;width:180px"><div style="border-top:1px solid #999;padding-top:8px;font-size:12px;color:#555">Prepared by<br><strong>Khalid Orakzai</strong><br>CEO, Shinkore Marketing</div></div>
-  <div style="text-align:center;width:180px"><div style="border-top:1px solid #999;padding-top:8px;font-size:12px;color:#555">Client Representative<br><strong>${client.name}</strong></div></div>
+  <div style="text-align:center;width:180px"><div style="border-top:1px solid #999;padding-top:8px;font-size:12px;color:#555">Client Representative<br><strong>${cl.name}</strong></div></div>
 </div>
 
 <div class="footer">Shinkore Marketing | Generated ${new Date().toLocaleDateString("en-PK")} | www.appabbottabad.com | This report is confidential</div>
