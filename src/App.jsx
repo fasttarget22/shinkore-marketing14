@@ -728,11 +728,11 @@ function StaffPage({data,setData,toast}){
     }catch(e){setAiPerf(p=>({...p,[u.id]:"Error. Check connection."}));}
     setAiPerfLoading(p=>({...p,[u.id]:false}));
   };
-  const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:"",paid_by:"admin"});
+  const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:"",paid_by:"admin",sup_id:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const openAdd=()=>{setEditing(null);setF({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});setShow(true)};
-  const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||""});setShow(true)};
+  const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||"",paid_by:u.paid_by||"admin",pin:u.pin||"",sup_id:u.sup_id||""});setShow(true)};
 
   const doSave=()=>{
     if(!f.name||!f.phone) return;
@@ -840,6 +840,13 @@ function StaffPage({data,setData,toast}){
                   {data.teams.map(t=><option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
+              {f.role==="ba"&&<div className="fg"><label className="fl">Reports To (Supervisor)</label>
+                <select className="fsel" value={f.sup_id||""} onChange={e=>set("sup_id",e.target.value)}>
+                  <option value="">-- No supervisor --</option>
+                  {(data.users||[]).filter(u=>u.role==="supervisor").map(s=><option key={s.id} value={s.id}>{s.name} · {s.phone}</option>)}
+                </select>
+                <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>This BA will appear under the selected supervisor.</div>
+              </div>}
               <div className="fg"><label className="fl">CallMeBot API Key (for auto-alerts)</label>
                 <input className="fi" value={f.callmebot_key} onChange={e=>set("callmebot_key",e.target.value)} placeholder="e.g. 1234567"/>
                 <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>Staff sends "I allow callmebot to send me messages" to +34 644 59 72 97 on WhatsApp → gets key back</div>
@@ -1103,7 +1110,11 @@ function AllocPage({data,setData,toast}){
             var supAllocs=data.allocations.filter(function(a){return a.user_id===sup.id&&a.active;});
             var supStalls=supAllocs.map(function(a){return (data.stalls||[]).find(function(s){return s.id===a.stall_id;});}).filter(Boolean);
             var supStallIds=supStalls.map(function(s){return s.id;});
-            var myBAs=(data.users||[]).filter(function(u){return u.role==="ba"&&data.allocations.some(function(a){return a.user_id===u.id&&a.active&&supStallIds.includes(a.stall_id);});});
+            var myBAs=(data.users||[]).filter(function(u){
+              if(u.role!=="ba")return false;
+              if(u.sup_id)return u.sup_id===sup.id;
+              return data.allocations.some(function(a){return a.user_id===u.id&&a.active&&supStallIds.includes(a.stall_id);});
+            });
             var brands=[...new Set(supStalls.map(function(s){return s.client||"";}).filter(Boolean))];
             var today=new Date().toISOString().slice(0,10);
             return(
