@@ -2657,7 +2657,8 @@ function ActivityPage({user,data,setData,toast}){
   const openEdit=(act)=>{setForm({...emptyAct,...act});setEditing(act);setView("form");};
   const openNew=()=>{
     var autoFill={};
-    if(isBA){
+    var today=new Date().toISOString().slice(0,10);
+    if(isBA||isSup){
       var myAlloc=data.allocations.find(function(a){return a.user_id===user.id&&a.active;});
       if(myAlloc){
         var myStall=(data.stalls||[]).find(function(s){return s.id===myAlloc.stall_id;});
@@ -2665,10 +2666,24 @@ function ActivityPage({user,data,setData,toast}){
           autoFill.store_name=myStall.name||"";
           autoFill.city=myStall.city||"";
           autoFill.brand=myStall.client||"";
+          // Find supervisor on same stall
+          var supAlloc=data.allocations.find(function(a){
+            return a.stall_id===myAlloc.stall_id&&a.active&&a.user_id!==user.id&&
+            (data.users||[]).find(function(u){return u.id===a.user_id&&u.role==="supervisor";});
+          });
+          if(supAlloc) autoFill.supervisor_id=supAlloc.user_id;
+        }
+        // Auto-fill punch in from today's attendance
+        var todayAtt=(data.attendance||[]).find(function(a){
+          return a.user_id===user.id&&a.stall_id===myAlloc.stall_id&&a.date===today;
+        });
+        if(todayAtt){
+          autoFill.punch_in=todayAtt.clock_in||"";
+          if(todayAtt.clock_out) autoFill.punch_out=todayAtt.clock_out;
         }
       }
     }
-    setForm({...emptyAct,...autoFill,ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:""});
+    setForm({...emptyAct,...autoFill,ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:autoFill.supervisor_id||""});
     setEditing(null);setView("form");
   };
   const printActivity=(act)=>{
@@ -2821,7 +2836,25 @@ function ActivityPage({user,data,setData,toast}){
           <div style={{marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"var(--txd)"}}>Usership</div><button className="bg" onClick={()=>addItem("usership")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
           {form.usership.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Brand" value={item.name} onChange={e=>updateItem("usership",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Count" type="number" value={item.qty} onChange={e=>updateItem("usership",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("usership",item.id)}><I n="del" s={12}/></button></div>))}
           <div style={{marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:12,color:"var(--txd)"}}>Sales SKU</div><button className="bg" onClick={()=>addItem("sales_items")} style={{fontSize:11,padding:"4px 10px"}}><I n="plus" s={12}/>Add</button></div>
-          {form.sales_items.map(item=>(<div key={item.id} style={{display:"flex",gap:8,marginBottom:6}}><input className="fi" placeholder="Product" value={item.name} onChange={e=>updateItem("sales_items",item.id,"name",e.target.value)} style={{flex:2}}/><input className="fi" placeholder="Size" value={item.size} onChange={e=>updateItem("sales_items",item.id,"size",e.target.value)} style={{flex:1}}/><input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("sales_items",item.id,"qty",e.target.value)} style={{flex:1}}/><button className="brd" onClick={()=>removeItem("sales_items",item.id)}><I n="del" s={12}/></button></div>))}
+          {form.sales_items.map(item=>(
+            <div key={item.id} style={{marginBottom:8,background:"var(--d3)",borderRadius:8,padding:"8px"}}>
+              <div style={{display:"flex",gap:6,marginBottom:6}}>
+                <input className="fi" placeholder="Product name" value={item.name} onChange={e=>updateItem("sales_items",item.id,"name",e.target.value)} style={{flex:3}}/>
+                <input className="fi" placeholder="Size" value={item.size} onChange={e=>updateItem("sales_items",item.id,"size",e.target.value)} style={{flex:1}}/>
+                <button className="brd" onClick={()=>removeItem("sales_items",item.id)}><I n="del" s={12}/></button>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input className="fi" placeholder="Qty" type="number" value={item.qty} onChange={e=>updateItem("sales_items",item.id,"qty",e.target.value)} style={{flex:1}}/>
+                <input className="fi" placeholder="Price/unit PKR" type="number" value={item.price||""} onChange={e=>updateItem("sales_items",item.id,"price",e.target.value)} style={{flex:2}}/>
+                {item.qty&&item.price&&<div style={{fontSize:12,color:"var(--g)",fontWeight:600,whiteSpace:"nowrap"}}>= PKR {(Number(item.qty)*Number(item.price)).toLocaleString()}</div>}
+              </div>
+            </div>
+          ))}
+          {form.sales_items.length>0&&form.sales_items.some(i=>i.price&&i.qty)&&(
+            <div style={{background:"var(--gd)",borderRadius:8,padding:"8px 12px",fontSize:13,fontWeight:600,color:"var(--g)"}}>
+              Total Sales Value: PKR {form.sales_items.reduce((s,i)=>s+(Number(i.qty||0)*Number(i.price||0)),0).toLocaleString()}
+            </div>
+          )}
         </div>
       </div>}
       {form.type==="sampling"&&<div className="card" style={{marginBottom:12}}>
