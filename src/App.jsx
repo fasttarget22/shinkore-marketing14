@@ -242,6 +242,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"training",icon:"users",label:"Training"},
     {id:"clients",icon:"users",label:"Clients"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
+    {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},
     {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
@@ -3462,6 +3463,117 @@ function TrainingPage({user,data,setData,toast}){
 }
 
 
+// ─── LETTERS & DOCUMENTS PAGE ─────────────────────────────────────────────────
+function LettersPage({data,toast}){
+  const LETTER_TYPES=[
+    {id:"bank",label:"Bank Account Opening Request",to:"The Branch Manager"},
+    {id:"employment",label:"Employment / Appointment Letter",to:""},
+    {id:"salary_cert",label:"Salary Certificate",to:"To Whom It May Concern"},
+    {id:"experience",label:"Experience / Clearance Letter",to:"To Whom It May Concern"},
+    {id:"authority",label:"Authority Letter",to:"To Whom It May Concern"},
+    {id:"custom",label:"Custom Letter",to:""}
+  ];
+  const [typeId,setTypeId]=useState("bank");
+  const [empId,setEmpId]=useState("");
+  const [recipient,setRecipient]=useState("The Branch Manager");
+  const [subject,setSubject]=useState("");
+  const [body,setBody]=useState("");
+  const [lang,setLang]=useState("english");
+  const [loading,setLoading]=useState(false);
+  const staff=(data.users||[]).filter(u=>u.role!=="admin");
+  const emp=staff.find(u=>u.id===empId);
+  const type=LETTER_TYPES.find(t=>t.id===typeId);
+
+  const onType=(id)=>{
+    setTypeId(id);
+    var t=LETTER_TYPES.find(x=>x.id===id);
+    if(t&&t.to)setRecipient(t.to);
+  };
+
+  const draftAI=async()=>{
+    setLoading(true);setBody("");
+    try{
+      var roleLabel=emp?(emp.role==="ba"?"Business Ambassador":"Supervisor"):"employee";
+      var details=emp?("Employee Name: "+emp.name+"\nDesignation: "+roleLabel+"\nCNIC: "+(emp.cnic||"N/A")+"\nPhone: "+emp.phone+"\nJoining Date: "+(emp.join_date||"N/A")+"\nMonthly basis daily rate: PKR "+(emp.daily_rate||"N/A")+"\nBank/Account: "+(emp.bank_account||"N/A")):"(no employee selected)";
+      var prompt="You are an HR officer at Shinkore Marketing, a field marketing company in Abbottabad, Pakistan, headed by CEO Khalid Orakzai. Write a formal, professional "+type.label+" addressed to: "+recipient+".\n\nEmployee details:\n"+details+"\n\nWrite only the BODY of the letter (no letterhead, no date, no signature block — those are added separately). Keep it concise, formal and ready to sign. "+(lang==="urdu"?"Write the letter body in proper Urdu Nastaliq script.":"Write in professional English.");
+      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,messages:[{role:"user",content:prompt}]})});
+      var json=await res.json();
+      setBody(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not draft. Try again.");
+      if(!subject)setSubject(type.label);
+    }catch(e){setBody("Error drafting letter. Check connection.");}
+    setLoading(false);
+  };
+
+  const generate=()=>{
+    if(!body.trim()){toast("Write or draft the letter body first.");return;}
+    var today=new Date().toLocaleDateString("en-PK",{year:"numeric",month:"long",day:"numeric"});
+    var ref="SK-"+Date.now().toString().slice(-6);
+    var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+
+      "@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');"+
+      "*{margin:0;padding:0;box-sizing:border-box}"+
+      "body{font-family:'DM Sans',sans-serif;color:#1a1a1a;padding:50px 56px;max-width:780px;margin:0 auto;line-height:1.8}"+
+      ".lh{display:flex;align-items:center;gap:14px;border-bottom:3px solid #C9A84C;padding-bottom:18px;margin-bottom:6px}"+
+      ".logo{width:62px;height:62px;border-radius:8px;object-fit:cover}"+
+      ".cn{font-family:'Rajdhani',sans-serif;font-size:30px;font-weight:700;color:#C9A84C;letter-spacing:1px;line-height:1}"+
+      ".cs{font-size:11px;color:#777;margin-top:3px}"+
+      ".meta{display:flex;justify-content:space-between;font-size:12px;color:#888;margin:14px 0 30px}"+
+      ".subject{font-weight:700;font-size:15px;margin:24px 0 16px;text-decoration:underline}"+
+      ".to{font-size:14px;margin-bottom:18px}"+
+      ".body{font-size:14px;white-space:pre-wrap;text-align:justify}"+
+      ".sign{margin-top:54px}"+
+      ".sign-name{font-weight:700;font-size:14px}"+
+      ".sign-sub{font-size:12px;color:#666}"+
+      ".foot{margin-top:50px;border-top:1px solid #e0d0b0;padding-top:14px;font-size:10px;color:#aaa;text-align:center}"+
+      "@media print{body{padding:30px}}"+
+      "</style></head><body>"+
+      '<div class="lh"><img class="logo" src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg"/><div><div class="cn">SHINKORE MARKETING</div><div class="cs">CEO: Khalid Orakzai &nbsp;|&nbsp; Civil Officer Col Office 28, Abbottabad</div><div class="cs">03135443656 &nbsp;|&nbsp; 0992414034 &nbsp;|&nbsp; www.appabbottabad.com</div></div></div>'+
+      '<div class="meta"><span>Ref: '+ref+'</span><span>Date: '+today+'</span></div>'+
+      (recipient?'<div class="to"><strong>To:</strong> '+recipient+'</div>':"")+
+      (subject?'<div class="subject">Subject: '+subject+'</div>':"")+
+      '<div class="body">'+body.replace(/</g,"&lt;").replace(/\n/g,"<br>")+'</div>'+
+      '<div class="sign"><div style="border-top:1px solid #999;width:200px;padding-top:8px"><div class="sign-name">Khalid Orakzai</div><div class="sign-sub">CEO, Shinkore Marketing</div></div></div>'+
+      '<div class="foot">This is an official document issued by Shinkore Marketing | www.appabbottabad.com</div>'+
+      "</body></html>";
+    openPrint(html);
+  };
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:16}}>
+        <div className="ch"><I n="pdf" s={16} c="var(--g)"/><div><div className="ct">Letters & Documents</div><div className="cs">Official letters on company letterhead</div></div></div>
+        <div className="cb">
+          <div className="fg"><label className="fl">Letter Type</label>
+            <select className="fsel" value={typeId} onChange={e=>onType(e.target.value)}>
+              {LETTER_TYPES.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="fg"><label className="fl">Employee (auto-fills details)</label>
+            <select className="fsel" value={empId} onChange={e=>setEmpId(e.target.value)}>
+              <option value="">-- None / general --</option>
+              {staff.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role==="ba"?"BA":"Supervisor"})</option>)}
+            </select>
+          </div>
+          <div className="frow">
+            <div className="fg"><label className="fl">To (Recipient)</label><input className="fi" value={recipient} onChange={e=>setRecipient(e.target.value)} placeholder="e.g. The Branch Manager, HBL Abbottabad"/></div>
+            <div className="fg"><label className="fl">Subject</label><input className="fi" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Subject line"/></div>
+          </div>
+          <div className="fg"><label className="fl">Letter Body</label>
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
+              <button onClick={()=>setLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:lang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
+              <button onClick={()=>setLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:lang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
+              <button onClick={draftAI} disabled={loading} style={{fontSize:11,padding:"3px 12px",borderRadius:6,cursor:"pointer",background:"rgba(139,92,246,.3)",border:"1px solid rgba(139,92,246,.5)",color:"#a78bfa",fontWeight:600,marginLeft:"auto"}}>{loading?"⏳ Drafting...":"✨ AI Draft"}</button>
+            </div>
+            <textarea className="fi" value={body} onChange={e=>setBody(e.target.value)} rows={10} style={{minHeight:200,fontFamily:"inherit",lineHeight:1.6}} placeholder="Write the letter, or tap AI Draft to generate it. You can edit before generating the PDF."/>
+          </div>
+          <button className="bg" onClick={generate} style={{width:"100%",justifyContent:"center"}}><I n="pdf" s={16}/>Generate Letter PDF</button>
+        </div>
+      </div>
+      {staff.length===0&&<div style={{textAlign:"center",padding:"20px",color:"var(--txd)",fontSize:13}}>Add staff to enable employee auto-fill.</div>}
+    </div>
+  );
+}
+
+
 // ─── ASK AI PAGE ──────────────────────────────────────────────────────────────
 function AskAIPage({data,user}){
   const [messages,setMessages]=useState([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! I'm your Shinkore AI assistant. I have access to all your business data — staff, attendance, activities, salary, cash, clients and stalls. Ask me anything!"}]);
@@ -4250,7 +4362,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -4270,6 +4382,7 @@ export default function App(){
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
+        case "letters": return <LettersPage data={data} toast={toast}/>;
         case "client_dash": return <ClientDashPage user={user} data={data} toast={toast} setPage={setPage}/>;
         case "settings": return <SettingsPage data={data} setData={setData} toast={toast}/>;
         case "sync": return <SyncPage data={data} setData={setData} toast={toast}/>;
