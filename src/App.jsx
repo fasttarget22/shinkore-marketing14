@@ -507,6 +507,7 @@ function AdminDash({data,toast,setPage}){
 
   const [aiBrief,setAiBrief]=useState("");
   const [aiLoading,setAiLoading]=useState(false);
+  const [briefLang,setBriefLang]=useState("english");
 
   const generateBriefing=async()=>{
     setAiLoading(true);
@@ -526,7 +527,7 @@ function AdminDash({data,toast,setPage}){
         "This Month Activities: "+monthActs.length+"\n"+
         "This Month Interceptions: "+totalInterceptions+"\n"+
         "This Month Sales (pcs): "+totalSales+"\n"+
-        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional.";
+        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional."+(briefLang==="urdu"?" Respond ONLY in Urdu language using Roman Urdu or Nastaliq script.":"");
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
@@ -588,6 +589,10 @@ function AdminDash({data,toast,setPage}){
         <div className="ch">
           <div style={{fontSize:22}}>🤖</div>
           <div style={{flex:1}}><div className="ct" style={{color:"#a78bfa"}}>AI Daily Briefing</div><div className="cs">Powered by Claude AI</div></div>
+          <div style={{display:"flex",gap:4,marginRight:4}}>
+            <button onClick={()=>setBriefLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:briefLang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
+            <button onClick={()=>setBriefLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:briefLang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
+          </div>
           <button onClick={generateBriefing} disabled={aiLoading} style={{background:"linear-gradient(135deg,rgba(139,92,246,.3),rgba(59,130,246,.3))",border:"1px solid rgba(139,92,246,.5)",borderRadius:8,padding:"6px 14px",cursor:"pointer",color:"#a78bfa",fontSize:12,fontWeight:600}}>{aiLoading?"⏳ Generating...":"✨ Generate"}</button>
         </div>
         {aiBrief&&<div className="cb">
