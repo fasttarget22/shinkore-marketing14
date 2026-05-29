@@ -2085,6 +2085,7 @@ const generateSlipHTML = (user, rec, stalls, allocations) => {
     <div class="staff-name">${user.name}</div>
     <div class="staff-role">${user.role === "ba" ? "Business Ambassador" : "Supervisor"}</div>
     <div class="staff-phone">${user.phone}</div>
+    ${user.bank_account ? `<div style="font-size:12px;color:#1a8a4a;margin-top:6px;font-weight:600">💳 ${user.bank_account}</div>` : ""}
     ${stall ? `<div style="font-size:12px;color:#888;margin-top:4px">📍 ${stall.name}, ${stall.city}</div>` : ""}
   </div>
   <div style="text-align:right">
@@ -2265,6 +2266,7 @@ function SalaryPage({data,setData,toast}){
                       <div style={{flex:1}}>
                         <div style={{fontWeight:600,fontSize:13}}>{u.name}</div>
                         <div style={{fontSize:11,color:"var(--txd)"}}>{days} days worked · {formatPKR(u.daily_rate)}/day</div>
+                        {u.bank_account&&<div style={{fontSize:11,color:"var(--g)",marginTop:2}}>💳 {u.bank_account}</div>}
                       </div>
                       <button className="bg" onClick={()=>openAdd(u)} style={{padding:"7px 12px",fontSize:12}}><I n="plus" s={13}/>Add</button>
                     </div>
