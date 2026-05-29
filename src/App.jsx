@@ -527,7 +527,7 @@ function AdminDash({data,toast,setPage}){
         "This Month Activities: "+monthActs.length+"\n"+
         "This Month Interceptions: "+totalInterceptions+"\n"+
         "This Month Sales (pcs): "+totalSales+"\n"+
-        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional."+(briefLang==="urdu"?" Respond ONLY in proper Urdu language using Nastaliq Urdu script (not Roman Urdu). Write everything in اردو characters only.":"");
+        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional."+(briefLang==="urdu"?" Respond ONLY in proper Urdu language using Nastaliq Urdu script. Do NOT use any English words at all — translate everything including technical terms like Briefing, Pending, Approvals, Activities into Urdu. Write 100% in اردو script only.":"");
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
