@@ -302,6 +302,8 @@ function AdminDash({data,toast,setPage}){
       const cur=now.getHours()*60+now.getMinutes();
       const att=(data.attendance||[]).filter(a=>a.date===today);
       const absent=data.allocations.filter(a=>a.active).filter(a=>{
+        const userExists=(data.users||[]).some(x=>x.id===a.user_id);
+        if(!userExists)return false;
         const h=(a.duty_start||"09:00").split(":");
         const duty=Number(h[0])*60+Number(h[1]);
         return cur>duty+30&&!att.find(x=>x.user_id===a.user_id)&&!(alertDismissed||[]).includes(a.user_id);
@@ -572,8 +574,9 @@ function StaffPage({data,setData,toast}){
 
   const doDel=(u)=>{
     if(!confirm(`Delete ${u.name}?`)) return;
-    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id)};
-    setData(d);save(d);deleteFromSB("sm_users",u.id);toast("Removed.");
+    var orphanAllocs=(data.allocations||[]).filter(x=>x.user_id===u.id);
+    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id),allocations:(data.allocations||[]).filter(x=>x.user_id!==u.id)};
+    setData(d);save(d);deleteFromSB("sm_users",u.id);orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});toast("Removed.");
   };
 
   const addTeam=()=>{
@@ -4006,6 +4009,18 @@ export default function App(){
             merged[key]=remote[tbl];
           }
         });
+        // Self-heal: drop allocations whose user no longer exists (only when users are loaded, so it never misfires)
+        if(Array.isArray(merged.users)&&merged.users.length>0&&Array.isArray(merged.allocations)){
+          var validIds={};
+          merged.users.forEach(function(u){validIds[u.id]=true;});
+          var before=merged.allocations.length;
+          var cleaned=merged.allocations.filter(function(a){return validIds[a.user_id];});
+          if(cleaned.length<before){
+            var removed=merged.allocations.filter(function(a){return !validIds[a.user_id];});
+            removed.forEach(function(a){deleteFromSB("sm_allocations",a.id);});
+            merged.allocations=cleaned;
+          }
+        }
         localStorage.setItem("shinkore_v2",JSON.stringify(merged));
         return merged;
       });
