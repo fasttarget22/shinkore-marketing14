@@ -2660,6 +2660,7 @@ function ActivityPage({user,data,setData,toast}){
     var today=new Date().toISOString().slice(0,10);
     if(isBA||isSup){
       var myAlloc=data.allocations.find(function(a){return a.user_id===user.id&&a.active;});
+      if(!myAlloc&&(isBA||isSup)){toast("You are not allocated to any stall. Contact admin to assign you first.");return;}
       if(myAlloc){
         var myStall=(data.stalls||[]).find(function(s){return s.id===myAlloc.stall_id;});
         if(myStall){
