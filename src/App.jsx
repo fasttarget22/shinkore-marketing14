@@ -559,7 +559,7 @@ function StaffPage({data,setData,toast}){
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const openAdd=()=>{setEditing(null);setF({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});setShow(true)};
-  const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||"",paid_by:u.paid_by||"admin",pin:u.pin||"",sup_id:u.sup_id||""});setShow(true)};
+  const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||"",paid_by:u.paid_by||"admin",pin:u.pin||"",sup_id:u.sup_id||"",cnic:u.cnic||"",cnic_front:u.cnic_front||"",cnic_back:u.cnic_back||"",photo:u.photo||"",address:u.address||"",emergency_name:u.emergency_name||"",emergency_phone:u.emergency_phone||"",join_date:u.join_date||"",bank_account:u.bank_account||"",blood_group:u.blood_group||"",hr_notes:u.hr_notes||""});setShow(true)};
 
   const doSave=()=>{
     if(!f.name||!f.phone) return;
@@ -678,6 +678,44 @@ function StaffPage({data,setData,toast}){
               <div className="fg"><label className="fl">CallMeBot API Key (for auto-alerts)</label>
                 <input className="fi" value={f.callmebot_key} onChange={e=>set("callmebot_key",e.target.value)} placeholder="e.g. 1234567"/>
                 <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>Staff sends "I allow callmebot to send me messages" to +34 644 59 72 97 on WhatsApp → gets key back</div>
+              </div>
+              <div style={{borderTop:"1px solid var(--bo)",margin:"14px 0 10px",paddingTop:12}}>
+                <div style={{fontFamily:"Rajdhani",fontSize:15,fontWeight:700,color:"var(--g)",marginBottom:10}}>📋 Employee Profile (HR)</div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">CNIC Number</label><input className="fi" value={f.cnic||""} onChange={e=>set("cnic",e.target.value)} placeholder="00000-0000000-0"/></div>
+                  <div className="fg"><label className="fl">Blood Group</label><input className="fi" value={f.blood_group||""} onChange={e=>set("blood_group",e.target.value)} placeholder="e.g. B+"/></div>
+                </div>
+                <div className="fg"><label className="fl">Address</label><input className="fi" value={f.address||""} onChange={e=>set("address",e.target.value)} placeholder="Full address"/></div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Emergency Contact Name</label><input className="fi" value={f.emergency_name||""} onChange={e=>set("emergency_name",e.target.value)}/></div>
+                  <div className="fg"><label className="fl">Emergency Phone</label><input className="fi" value={f.emergency_phone||""} onChange={e=>set("emergency_phone",e.target.value)}/></div>
+                </div>
+                <div className="frow">
+                  <div className="fg"><label className="fl">Join Date</label><input className="fi" type="date" value={f.join_date||""} onChange={e=>set("join_date",e.target.value)}/></div>
+                  <div className="fg"><label className="fl">Bank / JazzCash / Easypaisa</label><input className="fi" value={f.bank_account||""} onChange={e=>set("bank_account",e.target.value)} placeholder="Account for salary"/></div>
+                </div>
+                <div className="fg"><label className="fl">HR Notes</label><input className="fi" value={f.hr_notes||""} onChange={e=>set("hr_notes",e.target.value)} placeholder="Education, remarks, etc."/></div>
+                <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1,margin:"10px 0 8px"}}>Documents</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {[{k:"photo",label:"Photo"},{k:"cnic_front",label:"CNIC Front"},{k:"cnic_back",label:"CNIC Back"}].map(function(doc){
+                    return(
+                      <div key={doc.k} style={{flex:1,minWidth:90}}>
+                        <label className="fl" style={{display:"block",marginBottom:4}}>{doc.label}</label>
+                        {f[doc.k]?(
+                          <div style={{position:"relative"}}>
+                            <img src={f[doc.k]} style={{width:"100%",height:80,objectFit:"cover",borderRadius:8,border:"1px solid var(--bo)"}}/>
+                            <button onClick={()=>set(doc.k,"")} style={{position:"absolute",top:-6,right:-6,background:"var(--rd)",border:"none",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:12,cursor:"pointer"}}>×</button>
+                          </div>
+                        ):(
+                          <label style={{display:"flex",alignItems:"center",justifyContent:"center",height:80,border:"1px dashed var(--bo)",borderRadius:8,cursor:"pointer",fontSize:11,color:"var(--txd)"}}>
+                            + Upload
+                            <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{var file=e.target.files[0];if(!file)return;toast("Uploading "+doc.label+"...");var r=await uploadPhoto(file);if(r){set(doc.k,r.url);toast(doc.label+" uploaded!");}else toast("Upload failed.");e.target.value="";}}/>
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div className="ma">
                 <button className="bs" onClick={()=>setShow(false)}>Cancel</button>
