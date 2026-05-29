@@ -482,7 +482,7 @@ function AdminDash({data,toast,setPage}){
           return (u?u.name:"?")+"/"+(u?u.role:"")+" at "+(s?s.name:"?")+","+(s?s.city:"")+" duty:"+a.duty_start;
         }).join("; ");
         try{
-          const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
+          const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
           const json=await res.json();
           setAlertPopup({absent,details,msg:json.choices&&json.choices[0]?json.choices[0].message.content:absent.length+" staff not checked in!"});
         }catch(e){setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});}
@@ -529,7 +529,7 @@ function AdminDash({data,toast,setPage}){
         "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional.";
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
         body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
@@ -695,7 +695,7 @@ function StaffPage({data,setData,toast}){
         "Write a 3-4 sentence performance review. Rate as Excellent/Good/Average/Poor. Give one specific recommendation. Be professional and constructive.";
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
         body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
@@ -2619,7 +2619,7 @@ function ActivityPage({user,data,setData,toast}){
         "Write in professional English. Start with the date and BA name. Be concise and factual.";
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
         body:JSON.stringify({
           model:"llama-3.3-70b-versatile",
           max_tokens:1000,
@@ -3309,7 +3309,7 @@ function AskAIPage({data,user}){
       const apiMessages=newMessages.map(m=>({role:m.role,content:m.content}));
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
         body:JSON.stringify({
           model:"llama-3.3-70b-versatile",
           max_tokens:1000,
@@ -3707,7 +3707,7 @@ function SyncPage({data,setData,toast}){
 const syncSheet=async(sheet,rows)=>{
     if(!url) return addLog("No Apps Script URL set.",false);
     try{
-      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
         body:JSON.stringify({sheet,rows})});
       addLog("Synced: "+sheet+" ("+rows.length+" rows)");
     }catch(e){addLog("Failed: "+sheet,false);}
