@@ -3170,6 +3170,26 @@ function ClientPDFPage({user,data,toast}){
   const [clientId,setClientId]=useState("");
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [preview,setPreview]=useState(false);
+  const [aiSummary,setAiSummary]=useState("");
+  const [aiLoading,setAiLoading]=useState(false);
+  const [aiLang,setAiLang]=useState("english");
+  const generateAISummary=async()=>{
+    if(!client){toast("Select a client first.");return;}
+    if(acts.length===0){toast("No approved activities for this period.");return;}
+    setAiLoading(true);setAiSummary("");
+    try{
+      var prompt="You are a marketing operations analyst for Shinkore Marketing, Abbottabad Pakistan. Write a professional executive summary paragraph (4-6 sentences) for a client activity report. Data:\n"+
+        "Client: "+client.name+"\nBrand: "+client.brand+"\nPeriod: "+month+"\n"+
+        "Total Activities: "+acts.length+"\nTotal Interceptions: "+totalInterceptions+"\nProductive Buyers: "+totalBuyers+"\nSales KG: "+totalKg+"\nSales PCs: "+totalPcs+"\n"+
+        "Gifts given: "+totalGifts+"\nSamples given: "+totalSamples+"\nCities: "+(cities.join(", ")||"-")+"\nStores covered: "+stores.length+"\n"+
+        "Write a confident, client-facing summary highlighting reach, engagement and sales outcomes, plus one forward-looking recommendation. Be specific with the numbers."+
+        (aiLang==="urdu"?" Respond ONLY in proper Urdu Nastaliq script. Do not use English words; translate technical terms into Urdu.":"");
+      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
+      var json=await res.json();
+      setAiSummary(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not generate summary.");
+    }catch(e){setAiSummary("Error generating summary. Check connection.");}
+    setAiLoading(false);
+  };
 
   const client=(data.clients||[]).find(c=>c.id===clientId);
   const acts=(data.activities||[]).filter(a=>
@@ -3237,6 +3257,7 @@ tr:nth-child(even) td{background:#fdfaf4}
   </div>
 </div>
 
+  ${aiSummary?'<div class="section"><div class="sec-title">Executive Summary</div><div style="font-size:13px;line-height:1.8;color:#333;padding:4px 2px">'+aiSummary.replace(/\n/g,"<br>")+'</div></div>':""}
 <div class="section">
   <div class="sec-title">Activity Details</div>
   <table>
@@ -3286,6 +3307,22 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
               <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales KG</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--gr)"}}>{totalKg}</div></div>
               <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales PCs</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--or)"}}>{totalPcs}</div></div>
             </div>
+          </div>}
+          {client&&acts.length>0&&<div style={{background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{fontSize:18}}>🤖</span>
+              <div style={{flex:1,fontSize:13,fontWeight:600,color:"#a78bfa"}}>AI Executive Summary</div>
+              <button onClick={()=>setAiLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:aiLang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
+              <button onClick={()=>setAiLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:aiLang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
+              <button onClick={generateAISummary} disabled={aiLoading} style={{fontSize:11,padding:"4px 10px",borderRadius:6,cursor:"pointer",background:"rgba(139,92,246,.3)",border:"1px solid rgba(139,92,246,.5)",color:"#a78bfa",fontWeight:600}}>{aiLoading?"⏳":"✨ Generate"}</button>
+            </div>
+            {aiSummary&&<div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{aiSummary}
+              <div style={{display:"flex",gap:6,marginTop:8}}>
+                <button onClick={()=>{navigator.clipboard.writeText(aiSummary);toast("Copied!");}} style={{fontSize:10,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
+                <button onClick={()=>{if(client.phone)sendWA(client.phone,aiSummary+"\n\n— Shinkore Marketing");else toast("No phone for client.");}} style={{fontSize:10,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
+              </div>
+            </div>}
+            {!aiSummary&&!aiLoading&&<div style={{fontSize:11,color:"var(--txd)"}}>Generate an AI summary to include at the top of the PDF report.</div>}
           </div>}
           <button className="bg" onClick={generatePDF} style={{width:"100%",justifyContent:"center"}}><I n="pdf" s={16}/>Generate Client PDF Report</button>
           {client&&acts.length>0&&<button className="bw" onClick={()=>{if(client.phone)sendWA(client.phone,"Dear "+client.name+", please find your brand "+client.brand+" activity report for "+month+" attached. Total: "+acts.length+" activities, "+totalInterceptions+" interceptions, "+totalKg+"kg sales. Contact us for the full report. — Shinkore Marketing 03135443656");else toast("No phone number for this client.");}} style={{width:"100%",justifyContent:"center",marginTop:8}}><I n="wa" s={16}/>Send Summary to Client via WhatsApp</button>}
