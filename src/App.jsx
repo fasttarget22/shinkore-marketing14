@@ -5,6 +5,7 @@ const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable
 const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{const{error}=await SB.from(table).upsert(rows,{onConflict:"id"});if(error){console.log("SB error",table,error);return false;}return true;}catch(e){console.log("SB error",table,e);return false;}};
 let syncStatusCb=null;
 const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
+const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delete().eq("id",id);if(error){console.log("SB delete error",table,error);return false;}return true;}catch(e){console.log("SB delete error",table,e);return false;}};
 const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -572,7 +573,7 @@ function StaffPage({data,setData,toast}){
   const doDel=(u)=>{
     if(!confirm(`Delete ${u.name}?`)) return;
     const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id)};
-    setData(d);save(d);toast("Removed.");
+    setData(d);save(d);deleteFromSB("sm_users",u.id);toast("Removed.");
   };
 
   const addTeam=()=>{
@@ -738,7 +739,7 @@ function StallsPage({data,setData,toast}){
   const doDel=(s)=>{
     if(!confirm(`Delete stall "${s.name}"?`)) return;
     const d={...data,stalls:(data.stalls||[]).filter(x=>x.id!==s.id)};
-    setData(d);save(d);toast("Stall removed.");
+    setData(d);save(d);deleteFromSB("sm_stalls",s.id);toast("Stall removed.");
   };
 
   return(
