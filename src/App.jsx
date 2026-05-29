@@ -514,6 +514,12 @@ function AdminDash({data,toast,setPage}){
   },[data.attendance,data.allocations]);
   const todayActs=(data.activities||[]).filter(a=>a.date===todayDate);
   const pendingApprovals=todayActs.filter(a=>a.approval_status==="submitted").length;
+  const stuckReports=(data.activities||[]).filter(function(a){
+    if(a.approval_status!=="submitted")return false;
+    if(!a.submitted_at)return false;
+    var hrs=(Date.now()-new Date(a.submitted_at).getTime())/3600000;
+    return hrs>12;
+  });
   const highRemarks=(data.activities||[]).filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
   const staff=(data.users||[]).filter(u=>u.role!=="admin");
   const today=new Date().toISOString().slice(0,10);
@@ -604,6 +610,14 @@ function AdminDash({data,toast,setPage}){
       {(pendingApprovals>0||highRemarks>0)&&<div className="sg" style={{marginBottom:16}}>
         {pendingApprovals>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{pendingApprovals}</div><div className="sl">Pending Approvals</div></div>}
         {highRemarks>0&&<div className="sc rd" onClick={()=>setPage&&setPage("activity")} style={{cursor:"pointer"}}><div className="si rd"><I n="alert" s={18}/></div><div className="sv">{highRemarks}</div><div className="sl">High Priority</div></div>}
+      </div>}
+      {stuckReports.length>0&&<div style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setPage&&setPage("activity")}>
+        <span style={{fontSize:22}}>⏰</span>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:14,color:"var(--rd)"}}>{stuckReports.length} report{stuckReports.length!==1?"s":""} awaiting approval over 12h</div>
+          <div style={{fontSize:12,color:"var(--txd)"}}>Tap to review and approve/reject so BAs aren't left waiting.</div>
+        </div>
+        <button onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");sendWA(ADMIN_PHONES[0],"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);}} style={{background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"5px 10px",cursor:"pointer",color:"#25d366",fontSize:11,whiteSpace:"nowrap"}}>📤 Remind</button>
       </div>}
       <div className="card" style={{marginBottom:16,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)"}}>
         <div className="ch">
@@ -2733,10 +2747,10 @@ function ActivityPage({user,data,setData,toast}){
     setAiLoading(p=>({...p,[act.id]:false}));
   };
 
-  const doSave=()=>{
+  const doSave=(override)=>{
     if(!form.city||!form.store_name||!form.brand)return toast("City, store and brand required.");
     if(!form.ba_id)return toast("Select BA.");
-    const rec={...form,id:form.id||genId()};
+    const rec={...form,...(override||{}),id:form.id||genId()};
     const d={...data};
     if(editing)d.activities=d.activities.map(a=>a.id===rec.id?rec:a);
     else d.activities=[...(d.activities||[]),rec];
@@ -3004,7 +3018,7 @@ function ActivityPage({user,data,setData,toast}){
       </div>
       <div style={{display:"flex",gap:10,marginBottom:24}}>
         <button className="bs" onClick={()=>{setView("list");setEditing(null);}}>Cancel</button>
-        <button className="bg" onClick={()=>{sf("approval_status",isBA?"submitted":"approved");doSave();}} style={{flex:1,justifyContent:"center"}}><I n="ok" s={16}/>{editing?"Update":isBA?"Submit Report":"Save & Approve"}</button>
+        <button className="bg" onClick={()=>{doSave(isBA?{approval_status:"submitted",submitted_at:new Date().toISOString()}:{approval_status:"approved"});}} style={{flex:1,justifyContent:"center"}}><I n="ok" s={16}/>{editing?"Update":isBA?"Submit Report":"Save & Approve"}</button>
       </div>
     </div>
   );
