@@ -6,7 +6,7 @@ const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{con
 let syncStatusCb=null;
 const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
 const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delete().eq("id",id);if(error){console.log("SB delete error",table,error);return false;}return true;}catch(e){console.log("SB delete error",table,e);return false;}};
-const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
+const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "Khalid";
@@ -66,6 +66,8 @@ const initData = () => {
     stock_items: [],
     clients: [{id:"c1",name:"Shahadat",brand:"Brite",phone:"03001234999",email:"",pin:"1234",active:true}],
     daily_plans: [],
+    trainings: [],
+    training_done: [],
     targets: [],
     activity_photos: [],
     callmebot: { admin1:"", admin2:"" },
@@ -84,7 +86,9 @@ const save = (d) => {
     pushToSB("sm_handovers", d.handovers||[]),
     pushToSB("sm_expenses", d.expenses||[]),
     pushToSB("sm_salary", d.salary||[]),
-    pushToSB("sm_personal", d.personal||[])
+    pushToSB("sm_personal", d.personal||[]),
+    pushToSB("sm_trainings", d.trainings||[]),
+    pushToSB("sm_training_done", d.training_done||[])
   ]).then(function(results){
     var allOk=results.every(function(r){return r===true;});
     if(syncStatusCb) syncStatusCb(allOk?"synced":"failed");
@@ -235,6 +239,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"personal",icon:"money",label:"Personal Finance"},
     {id:"activity",icon:"map",label:"Activity Reports"},
     {id:"daily_plan",icon:"cal",label:"Daily Plans"},
+    {id:"training",icon:"users",label:"Training"},
     {id:"clients",icon:"users",label:"Clients"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},
@@ -249,12 +254,14 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"activity",icon:"map",label:"Activity Reports"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"alerts",icon:"alert",label:"Late Alerts"},
+    {id:"training",icon:"users",label:"Training"},
   ]:[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
+    {id:"training",icon:"users",label:"Training"},
   ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
@@ -3372,6 +3379,88 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
 }
 
 
+// ─── TRAINING PAGE ────────────────────────────────────────────────────────────
+function TrainingPage({user,data,setData,toast}){
+  const isAdmin=user.role==="admin";
+  const [show,setShow]=useState(false);
+  const [f,setF]=useState({title:"",description:"",link:""});
+  const trainings=data.trainings||[];
+  const done=data.training_done||[];
+
+  const addTraining=()=>{
+    if(!f.title.trim()){toast("Title required.");return;}
+    var d={...data,trainings:[...(data.trainings||[]),{id:genId(),title:f.title.trim(),description:f.description.trim(),link:f.link.trim(),created:new Date().toISOString().slice(0,10)}]};
+    setData(d);save(d);setShow(false);setF({title:"",description:"",link:""});toast("Training added!");
+  };
+  const delTraining=(t)=>{
+    if(!confirm("Delete training \""+t.title+"\"?"))return;
+    var d={...data,trainings:(data.trainings||[]).filter(x=>x.id!==t.id),training_done:(data.training_done||[]).filter(x=>x.training_id!==t.id)};
+    setData(d);save(d);deleteFromSB("sm_trainings",t.id);toast("Deleted.");
+  };
+  const markDone=(t)=>{
+    if(done.some(x=>x.training_id===t.id&&x.user_id===user.id)){toast("Already completed.");return;}
+    var rec={id:genId(),training_id:t.id,user_id:user.id,date:new Date().toISOString().slice(0,10)};
+    var d={...data,training_done:[...(data.training_done||[]),rec]};
+    setData(d);save(d);toast("Marked complete! ✅");
+  };
+  const staffCount=(data.users||[]).filter(u=>u.role!=="admin").length;
+
+  return(
+    <div>
+      {isAdmin&&<div className="card" style={{marginBottom:16}}>
+        <div className="ch"><I n="users" s={16} c="var(--g)"/><div style={{flex:1}}><div className="ct">Training Modules</div><div className="cs">{trainings.length} module(s)</div></div><button className="bg" onClick={()=>setShow(true)}><I n="plus" s={15}/>Add</button></div>
+      </div>}
+      {trainings.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)",fontSize:13}}>No training modules yet.{isAdmin?" Tap Add to create one.":" Check back later."}</div>}
+      {trainings.map(function(t){
+        var myDone=done.some(x=>x.training_id===t.id&&x.user_id===user.id);
+        var completedCount=done.filter(x=>x.training_id===t.id).length;
+        return(
+          <div className="card" key={t.id} style={{marginBottom:12}}>
+            <div className="cb">
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{fontSize:22}}>📚</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:15}}>{t.title}</div>
+                  {t.description&&<div style={{fontSize:13,color:"var(--txd)",marginTop:4,lineHeight:1.6}}>{t.description}</div>}
+                  {t.link&&<a href={t.link} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:"var(--bl)",marginTop:6,display:"inline-block"}}>🔗 Open material</a>}
+                </div>
+              </div>
+              {isAdmin?(
+                <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1,fontSize:12,color:"var(--txd)"}}>✅ {completedCount} of {staffCount} staff completed</div>
+                  <button className="brd" onClick={()=>delTraining(t)} style={{fontSize:11,padding:"4px 10px"}}><I n="del" s={12}/>Delete</button>
+                </div>
+              ):(
+                <div style={{marginTop:12}}>
+                  {myDone?(
+                    <div style={{background:"rgba(46,204,113,.12)",border:"1px solid rgba(46,204,113,.3)",borderRadius:8,padding:"8px",textAlign:"center",fontSize:13,color:"var(--g)",fontWeight:600}}>✅ Completed</div>
+                  ):(
+                    <button className="bg" onClick={()=>markDone(t)} style={{width:"100%",justifyContent:"center"}}><I n="ok" s={15}/>Mark Complete</button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">Add Training Module</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
+            <div className="mb">
+              <div className="fg"><label className="fl">Title *</label><input className="fi" value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. Customer Greeting & Pitch"/></div>
+              <div className="fg"><label className="fl">Description</label><input className="fi" value={f.description} onChange={e=>setF({...f,description:e.target.value})} placeholder="What this covers"/></div>
+              <div className="fg"><label className="fl">Material Link (video/PDF, optional)</label><input className="fi" value={f.link} onChange={e=>setF({...f,link:e.target.value})} placeholder="https://youtube.com/..."/></div>
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={addTraining}><I n="ok" s={15}/>Add</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ─── ASK AI PAGE ──────────────────────────────────────────────────────────────
 function AskAIPage({data,user}){
   const [messages,setMessages]=useState([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! I'm your Shinkore AI assistant. I have access to all your business data — staff, attendance, activities, salary, cash, clients and stalls. Ask me anything!"}]);
@@ -4123,7 +4212,7 @@ export default function App(){
   // Step 6: Pull fresh data from cloud on startup + every 30s, merge in.
   useEffect(()=>{
     var stop=false;
-    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_personal:"personal"};
+    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_personal:"personal",sm_trainings:"trainings",sm_training_done:"training_done"};
     var pull=async function(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
@@ -4160,7 +4249,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -4186,6 +4275,7 @@ export default function App(){
         case "apk": return <ApkPage/>;
         case "cash": return <CashPage data={data} setData={setData} toast={toast}/>;
         case "salary": return <SalaryPage data={data} setData={setData} toast={toast}/>;
+        case "training": return <TrainingPage user={user} data={data} setData={setData} toast={toast}/>;
         case "ai": return <AskAIPage data={data} user={user}/>;
         default: return <AdminDash data={data} toast={toast} setPage={setPage}/>;
       }
@@ -4198,6 +4288,7 @@ export default function App(){
         case "my-salary": return <MySalaryPage user={user} data={data}/>;
         case "my-activity": return isAllocated?<ActivityPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
+        case "training": return <TrainingPage user={user} data={data} setData={setData} toast={toast}/>;
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
