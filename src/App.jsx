@@ -2655,7 +2655,22 @@ function ActivityPage({user,data,setData,toast}){
     setData(d);save(d);setView("list");setEditing(null);toast(editing?"Updated!":"Activity saved!");
   };
   const openEdit=(act)=>{setForm({...emptyAct,...act});setEditing(act);setView("form");};
-  const openNew=()=>{setForm({...emptyAct,ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:""});setEditing(null);setView("form");};
+  const openNew=()=>{
+    var autoFill={};
+    if(isBA){
+      var myAlloc=data.allocations.find(function(a){return a.user_id===user.id&&a.active;});
+      if(myAlloc){
+        var myStall=(data.stalls||[]).find(function(s){return s.id===myAlloc.stall_id;});
+        if(myStall){
+          autoFill.store_name=myStall.name||"";
+          autoFill.city=myStall.city||"";
+          autoFill.brand=myStall.client||"";
+        }
+      }
+    }
+    setForm({...emptyAct,...autoFill,ba_id:isBA?user.id:"",supervisor_id:isSup?user.id:""});
+    setEditing(null);setView("form");
+  };
   const printActivity=(act)=>{
     const ba=(data.users||[]).find(u=>u.id===act.ba_id);
     const sup=(data.users||[]).find(u=>u.id===act.supervisor_id);
@@ -2751,12 +2766,36 @@ function ActivityPage({user,data,setData,toast}){
         <div className="ch"><I n="clock" s={16} c="var(--g)"/><div className="ct">Timing</div></div>
         <div className="cb">
           <div className="frow">
-            <div className="fg"><label className="fl">Store In Time</label><input className="fi" type="time" value={form.punch_in} onChange={e=>sf("punch_in",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Store Out Time</label><input className="fi" type="time" value={form.punch_out} onChange={e=>sf("punch_out",e.target.value)}/></div>
+            <div className="fg">
+              <label className="fl">Store In Time</label>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input className="fi" type="time" value={form.punch_in} onChange={e=>sf("punch_in",e.target.value)} style={{flex:1}}/>
+                <button onClick={()=>sf("punch_in",new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit",hour12:false}))} style={{background:"rgba(46,204,113,.15)",border:"1px solid rgba(46,204,113,.3)",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"var(--g)",fontSize:11,whiteSpace:"nowrap"}}>⏱ Now</button>
+              </div>
+            </div>
+            <div className="fg">
+              <label className="fl">Store Out Time</label>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input className="fi" type="time" value={form.punch_out} onChange={e=>sf("punch_out",e.target.value)} style={{flex:1}}/>
+                <button onClick={()=>sf("punch_out",new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit",hour12:false}))} style={{background:"rgba(231,76,60,.15)",border:"1px solid rgba(231,76,60,.3)",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"var(--rd)",fontSize:11,whiteSpace:"nowrap"}}>⏱ Now</button>
+              </div>
+            </div>
           </div>
           <div className="frow">
-            <div className="fg"><label className="fl">Break Start</label><input className="fi" type="time" value={form.break_start} onChange={e=>sf("break_start",e.target.value)}/></div>
-            <div className="fg"><label className="fl">Break End</label><input className="fi" type="time" value={form.break_end} onChange={e=>sf("break_end",e.target.value)}/></div>
+            <div className="fg">
+              <label className="fl">Break Start</label>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input className="fi" type="time" value={form.break_start} onChange={e=>sf("break_start",e.target.value)} style={{flex:1}}/>
+                <button onClick={()=>sf("break_start",new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit",hour12:false}))} style={{background:"rgba(240,165,0,.15)",border:"1px solid rgba(240,165,0,.3)",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"var(--or)",fontSize:11,whiteSpace:"nowrap"}}>⏱ Now</button>
+              </div>
+            </div>
+            <div className="fg">
+              <label className="fl">Break End</label>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input className="fi" type="time" value={form.break_end} onChange={e=>sf("break_end",e.target.value)} style={{flex:1}}/>
+                <button onClick={()=>sf("break_end",new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit",hour12:false}))} style={{background:"rgba(46,204,113,.15)",border:"1px solid rgba(46,204,113,.3)",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"var(--g)",fontSize:11,whiteSpace:"nowrap"}}>⏱ Now</button>
+              </div>
+            </div>
           </div>
           {form.punch_in&&form.punch_out&&<div style={{background:"var(--gd)",borderRadius:9,padding:"10px 14px",fontSize:13}}>Total Hours: <strong style={{color:"var(--g)"}}>{calcHours(form.punch_in,form.punch_out,form.break_start,form.break_end)}</strong></div>}
         </div>
