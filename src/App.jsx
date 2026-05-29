@@ -1036,6 +1036,7 @@ function StallsPage({data,setData,toast}){
 
 // ─── ALLOCATIONS PAGE ─────────────────────────────────────────────────────────
 function AllocPage({data,setData,toast}){
+  const [tab,setTab]=useState("overview");
   const [show,setShow]=useState(false);
   const [f,setF]=useState({stall_id:"",user_id:"",duty_start:"09:00",daily_rate:"",from_date:"",to_date:"",paid_by:"admin"});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
@@ -1083,6 +1084,59 @@ function AllocPage({data,setData,toast}){
 
   return(
     <div>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <button className={tab==="overview"?"bg":"bs"} onClick={()=>setTab("overview")}><I n="users" s={14}/>Supervisor Overview</button>
+        <button className={tab==="alloc"?"bg":"bs"} onClick={()=>setTab("alloc")}><I n="alloc" s={14}/>All Allocations</button>
+      </div>
+      {tab==="overview"&&(
+        <div>
+          {(data.users||[]).filter(u=>u.role==="supervisor").length===0&&<div className="info info-warn"><I n="alert" s={14}/>No supervisors added yet.</div>}
+          {(data.users||[]).filter(u=>u.role==="supervisor").map(function(sup){
+            var supAllocs=data.allocations.filter(function(a){return a.user_id===sup.id&&a.active;});
+            var supStalls=supAllocs.map(function(a){return (data.stalls||[]).find(function(s){return s.id===a.stall_id;});}).filter(Boolean);
+            var supStallIds=supStalls.map(function(s){return s.id;});
+            var myBAs=(data.users||[]).filter(function(u){return u.role==="ba"&&data.allocations.some(function(a){return a.user_id===u.id&&a.active&&supStallIds.includes(a.stall_id);});});
+            var brands=[...new Set(supStalls.map(function(s){return s.client||"";}).filter(Boolean))];
+            var today=new Date().toISOString().slice(0,10);
+            return(
+              <div className="card" key={sup.id} style={{marginBottom:14}}>
+                <div className="ch">
+                  <div className="av av-blue" style={{width:44,height:44,fontSize:16,borderRadius:11}}>{getInitials(sup.name)}</div>
+                  <div style={{flex:1}}><div className="ct">{sup.name}</div><div className="cs">👮 Supervisor · {sup.phone}</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:12,color:"var(--g)",fontWeight:600}}>{formatPKR(sup.daily_rate)}/day</div></div>
+                </div>
+                <div className="cb">
+                  {supStalls.length===0?<div className="info info-warn" style={{margin:0}}><I n="alert" s={13}/>Not allocated yet.</div>:(
+                    <div>
+                      <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>📍 STALLS</div>
+                      {supStalls.map(function(s){return(
+                        <div key={s.id} style={{background:"var(--d3)",borderRadius:8,padding:"8px 10px",marginBottom:5,display:"flex",alignItems:"center",gap:8}}>
+                          <I n="pin" s={13} c="var(--g)"/>
+                          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{s.name}</div><div style={{fontSize:11,color:"var(--txd)"}}>{s.city} · {s.client||"—"}</div></div>
+                          <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:s.lat?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.lat?"var(--g)":"var(--rd)"}}>{s.lat?"🎯 GPS":"❌"}</span>
+                        </div>
+                      );})}
+                      {brands.length>0&&<div style={{fontSize:12,marginTop:6}}>🏷️ Brands: <strong>{brands.join(", ")}</strong></div>}
+                      <div style={{fontSize:11,color:"var(--txd)",marginTop:10,marginBottom:6}}>👥 BAs ({myBAs.length})</div>
+                      {myBAs.length===0?<div style={{fontSize:12,color:"var(--txd)"}}>No BAs on same stalls.</div>:myBAs.map(function(ba){
+                        var att=(data.attendance||[]).find(function(a){return a.user_id===ba.id&&a.date===today;});
+                        return(
+                          <div key={ba.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid var(--bo)"}}>
+                            <div className="av av-green" style={{width:32,height:32,fontSize:11,borderRadius:8}}>{getInitials(ba.name)}</div>
+                            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{ba.name}</div><div style={{fontSize:11,color:"var(--txd)"}}>{ba.phone}</div></div>
+                            <span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:att?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:att?"var(--g)":"var(--rd)"}}>{att?"✅ In":"❌ Out"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {tab==="alloc"&&<div>
       <div className="info info-blue"><I n="alloc" s={15}/>
         <div><strong>Flexible Allocation</strong> — Admin can assign ANY staff member to ANY stall, anywhere, any time. No team restrictions.</div>
       </div>
@@ -1182,6 +1236,7 @@ function AllocPage({data,setData,toast}){
           </div>
         </div>
       )}
+      </div>}
     </div>
   );
 }
