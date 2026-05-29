@@ -421,12 +421,16 @@ function Sidebar({user,page,setPage,open,onClose}){
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},
     {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
-  const staffNav=[
+  const isAllocated=(data.allocations||[]).some(function(a){return a.user_id===user.id&&a.active;});
+  const staffNav=isAllocated?[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
+  ]:[
+    {id:"my-dash",icon:"dash",label:"My Dashboard"},
+    {id:"my-salary",icon:"money",label:"My Salary"},
   ];
   const clientNav=[
     {id:"client_dash",icon:"dash",label:"My Dashboard"},
@@ -1460,6 +1464,7 @@ function MyDash({user,data,setPage}){
   const today=new Date().toISOString().slice(0,10);
   const isSup=user.role==="supervisor";
   const allocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
+  const isAllocated=allocs.length>0;
   const myAtt=(data.attendance||[]).filter(a=>a.user_id===user.id);
   const todayAtt=myAtt.filter(a=>a.date===today);
   const thisMonthStr=today.slice(0,7);
@@ -1508,7 +1513,13 @@ function MyDash({user,data,setPage}){
       <div className="card" style={{marginBottom:14}}>
         <div className="ch"><I n="clock" s={16} c="var(--g)"/><div className="ct">Today's Stalls</div></div>
         <div className="cb">
-          {allocs.length===0&&<div className="info info-warn"><I n="alert" s={13}/>No active stall assigned.</div>}
+          {!isAllocated&&<div style={{background:"rgba(231,76,60,.1)",border:"2px solid rgba(231,76,60,.3)",borderRadius:14,padding:"20px",textAlign:"center",marginBottom:14}}>
+            <div style={{fontSize:36,marginBottom:8}}>🔒</div>
+            <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--rd)",marginBottom:6}}>Not Allocated</div>
+            <div style={{fontSize:13,color:"var(--txd)",marginBottom:12}}>You are not assigned to any stall yet. Contact admin (Khalid) to get allocated.</div>
+            <div style={{fontSize:12,color:"var(--txd)"}}>You can only view your salary until allocated.</div>
+            <button onClick={()=>sendWA("00923135443656","Assalam o Alaikum Khalid! Mujhe abhi tak kisi stall par allocate nahi kiya gaya. Please meri allocation karein. - "+user.name)} style={{marginTop:12,background:"rgba(37,211,102,.15)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"8px 16px",cursor:"pointer",color:"#25d366",fontSize:13}}>📱 WhatsApp Khalid</button>
+          </div>}
           {allocs.map(a=>{
             var s=(data.stalls||[]).find(x=>x.id===a.stall_id);
             var att=todayAtt.find(x=>x.stall_id===a.stall_id);
@@ -4109,9 +4120,9 @@ export default function App(){
     } else {
       switch(page){
         case "my-dash": return <MyDash user={user} data={data} setPage={setPage}/>;
-        case "clock-in": return <ClockPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "clock-in": return isAllocated?<ClockPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "my-salary": return <MySalaryPage user={user} data={data}/>;
-        case "my-activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "my-activity": return isAllocated?<ActivityPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
       }
