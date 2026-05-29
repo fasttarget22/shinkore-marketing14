@@ -1207,6 +1207,30 @@ function ClockPage({user,data,setData,toast}){
 function AttendancePage({data,setData,toast}){
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const dayAtt=(data.attendance||[]).filter(a=>a.date===date);
+  const [manualFor,setManualFor]=useState(null);
+  const [mIn,setMIn]=useState("");
+  const [mOut,setMOut]=useState("");
+  const [mReason,setMReason]=useState("");
+
+  const openManual=(alloc,existing)=>{
+    setManualFor(alloc);
+    setMIn(existing&&existing.clock_in?existing.clock_in:"");
+    setMOut(existing&&existing.clock_out?existing.clock_out:"");
+    setMReason(existing&&existing.manual_reason?existing.manual_reason:"");
+  };
+  const saveManual=()=>{
+    if(!mIn){toast("Enter at least a clock-in time.");return;}
+    if(!mReason.trim()){toast("Reason is required for manual entry.");return;}
+    var alloc=manualFor;
+    var d={...data};
+    var existing=(d.attendance||[]).find(x=>x.user_id===alloc.user_id&&x.stall_id===alloc.stall_id&&x.date===date);
+    if(existing){
+      d.attendance=d.attendance.map(x=>x===existing?{...x,clock_in:mIn,clock_out:mOut||null,manual:true,manual_reason:mReason.trim()}:x);
+    }else{
+      d.attendance=[...(d.attendance||[]),{id:genId(),user_id:alloc.user_id,stall_id:alloc.stall_id,date:date,clock_in:mIn,clock_out:mOut||null,lat:null,lng:null,dist:0,manual:true,manual_reason:mReason.trim()}];
+    }
+    setData(d);save(d);setManualFor(null);toast("Manual attendance saved.");
+  };
 
   const sendLateAlert=(u,stall)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
@@ -1249,7 +1273,8 @@ function AttendancePage({data,setData,toast}){
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:12,color:"var(--gr)",fontWeight:600}}>In: {att.clock_in}</div>
                     {att.clock_out&&<div style={{fontSize:12,color:"var(--rd)"}}>Out: {att.clock_out}</div>}
-                    <div style={{fontSize:10,color:"var(--txd)"}}>{att.dist}m from stall</div>
+                    <div style={{fontSize:10,color:"var(--txd)"}}>{att.manual?"✏️ Manual entry":att.dist+"m from stall"}</div>
+                  <button className="bs" onClick={()=>openManual(a,att)} style={{fontSize:10,padding:"3px 8px",marginTop:4}}>✏️ Edit</button>
                   </div>
                 ):(
                   <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1257,6 +1282,7 @@ function AttendancePage({data,setData,toast}){
                     <button className="brd" onClick={()=>sendLateAlert(u,s)} style={{fontSize:11,padding:"5px 10px"}}>
                       <I n="wa" s={12}/>Alert
                     </button>
+                  <button className="bs" onClick={()=>openManual(a,null)} style={{fontSize:11,padding:"5px 10px"}}>✏️ Manual</button>
                   </div>
                 )}
               </div>
@@ -1264,6 +1290,22 @@ function AttendancePage({data,setData,toast}){
           })}
         </div>
       </div>
+      {manualFor&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setManualFor(null)}>
+          <div className="md">
+            <div className="mh"><div className="mt">Manual Attendance</div><div className="mc" onClick={()=>setManualFor(null)}>×</div></div>
+            <div className="mb">
+              <div className="info info-blue" style={{marginBottom:12}}><I n="alert" s={14}/><div>Manual entry for {date}. A reason is required for the record.</div></div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Clock In</label><input className="fi" type="time" value={mIn} onChange={e=>setMIn(e.target.value)}/></div>
+                <div className="fg"><label className="fl">Clock Out (optional)</label><input className="fi" type="time" value={mOut} onChange={e=>setMOut(e.target.value)}/></div>
+              </div>
+              <div className="fg"><label className="fl">Reason / Proof Reference *</label><input className="fi" value={mReason} onChange={e=>setMReason(e.target.value)} placeholder="e.g. GPS failed, confirmed by phone call"/></div>
+              <div className="ma"><button className="bs" onClick={()=>setManualFor(null)}>Cancel</button><button className="bg" onClick={saveManual}><I n="ok" s={15}/>Save Entry</button></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
