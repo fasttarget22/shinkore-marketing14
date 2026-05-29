@@ -482,9 +482,9 @@ function AdminDash({data,toast,setPage}){
           return (u?u.name:"?")+"/"+(u?u.role:"")+" at "+(s?s.name:"?")+","+(s?s.city:"")+" duty:"+a.duty_start;
         }).join("; ");
         try{
-          const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
+          const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
           const json=await res.json();
-          setAlertPopup({absent,details,msg:json.content&&json.content[0]?json.content[0].text:absent.length+" staff not checked in!"});
+          setAlertPopup({absent,details,msg:json.choices&&json.choices[0]?json.choices[0].message.content:absent.length+" staff not checked in!"});
         }catch(e){setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});}
       }
     };
@@ -527,13 +527,13 @@ function AdminDash({data,toast,setPage}){
         "This Month Interceptions: "+totalInterceptions+"\n"+
         "This Month Sales (pcs): "+totalSales+"\n"+
         "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional.";
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
-      setAiBrief(json.content?.[0]?.text||"Could not generate briefing.");
+      setAiBrief(json.choices?.[0]?.message?.content||"Could not generate briefing.");
     }catch(e){setAiBrief("Error generating briefing. Check connection.");}
     setAiLoading(false);
   };
@@ -693,13 +693,13 @@ function StaffPage({data,setData,toast}){
         "High Priority Remarks: "+highRemarks+"\n"+
         "Approved Activities: "+approved+"\n"+
         "Write a 3-4 sentence performance review. Rate as Excellent/Good/Average/Poor. Give one specific recommendation. Be professional and constructive.";
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
+        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
-      setAiPerf(p=>({...p,[u.id]:json.content?.[0]?.text||"Could not generate review."}));
+      setAiPerf(p=>({...p,[u.id]:json.choices?.[0]?.message?.content||"Could not generate review."}));
     }catch(e){setAiPerf(p=>({...p,[u.id]:"Error. Check connection."}));}
     setAiPerfLoading(p=>({...p,[u.id]:false}));
   };
@@ -2617,17 +2617,17 @@ function ActivityPage({user,data,setData,toast}){
         "BA Remark: "+(act.ba_remark||"None")+" ("+act.ba_remark_cat+" priority)\n"+
         "Approval Status: "+act.approval_status+"\n"+
         "Write in professional English. Start with the date and BA name. Be concise and factual.";
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"llama-3.3-70b-versatile",
           max_tokens:1000,
           messages:[{role:"user",content:prompt}]
         })
       });
       const json=await res.json();
-      const text=json.content?.[0]?.text||"Could not generate summary.";
+      const text=json.choices?.[0]?.message?.content||"Could not generate summary.";
       setAiSummary(p=>({...p,[act.id]:text}));
     }catch(e){
       setAiSummary(p=>({...p,[act.id]:"Error generating summary. Try again."}));
@@ -3307,18 +3307,17 @@ function AskAIPage({data,user}){
       const context=buildContext();
       const systemPrompt="You are Shinkore AI, a smart business assistant for Shinkore Marketing, a field marketing company in Abbottabad, Pakistan. You help CEO Khalid Orakzai manage his business. You have access to all business data provided below. Answer questions accurately, generate reports, give insights, and help make decisions. Be concise but thorough. Respond in English unless asked in Urdu.\n\nBUSINESS DATA:\n"+context;
       const apiMessages=newMessages.map(m=>({role:m.role,content:m.content}));
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"llama-3.3-70b-versatile",
           max_tokens:1000,
-          system:systemPrompt,
-          messages:apiMessages
+          messages:[{role:"system",content:systemPrompt},...apiMessages]
         })
       });
       const json=await res.json();
-      const reply=json.content?.[0]?.text||"Sorry, could not get a response.";
+      const reply=json.choices?.[0]?.message?.content||"Sorry, could not get a response.";
       setMessages(p=>[...p,{role:"assistant",content:reply}]);
     }catch(e){
       setMessages(p=>[...p,{role:"assistant",content:"❌ Connection error. Please try again."}]);
@@ -3708,7 +3707,7 @@ function SyncPage({data,setData,toast}){
 const syncSheet=async(sheet,rows)=>{
     if(!url) return addLog("No Apps Script URL set.",false);
     try{
-      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json"},
+      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json","Authorization":"Bearer import.meta.env.VITE_GROQ_KEY"},
         body:JSON.stringify({sheet,rows})});
       addLog("Synced: "+sheet+" ("+rows.length+" rows)");
     }catch(e){addLog("Failed: "+sheet,false);}
