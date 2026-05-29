@@ -422,13 +422,21 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
   const isAllocated=(data.allocations||[]).some(function(a){return a.user_id===user.id&&a.active;});
-  const staffNav=isAllocated?[
+  const isSupervisor=user.role==="supervisor";
+  const staffNav=isAllocated?(isSupervisor?[
+    {id:"my-dash",icon:"dash",label:"My Dashboard"},
+    {id:"clock-in",icon:"clock",label:"Clock In / Out"},
+    {id:"my-salary",icon:"money",label:"My Salary"},
+    {id:"activity",icon:"map",label:"Activity Reports"},
+    {id:"attend",icon:"clock",label:"Attendance"},
+    {id:"alerts",icon:"alert",label:"Late Alerts"},
+  ]:[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
-  ]:[
+  ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
   ];
@@ -4124,6 +4132,8 @@ export default function App(){
         case "my-salary": return <MySalaryPage user={user} data={data}/>;
         case "my-activity": return isAllocated?<ActivityPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
+        case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "alerts": return <AlertsPage data={data} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
       }
     }
