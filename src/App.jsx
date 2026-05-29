@@ -400,7 +400,7 @@ function Login({onLogin}){
 }
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-function Sidebar({user,page,setPage,open,onClose}){
+function Sidebar({user,data,page,setPage,open,onClose}){
   const isAdmin=user.role==="admin";
   const adminNav=[
     {id:"dash",icon:"dash",label:"Dashboard"},
@@ -4133,7 +4133,7 @@ export default function App(){
     <>
       <style>{css}</style>
       <div className="layout">
-        <Sidebar user={user} page={page} setPage={setPage} open={sideOpen} onClose={()=>setSideOpen(false)}/>
+        <Sidebar user={user} data={data} page={page} setPage={setPage} open={sideOpen} onClose={()=>setSideOpen(false)}/>
         <main className="main">
           <div className="topbar">
             <button className="mbtn" onClick={()=>setSideOpen(o=>!o)}>
