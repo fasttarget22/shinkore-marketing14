@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable_hPu0RIbvCd_DBCM4s2lH2g_U6CONZdr");
-const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return;try{await SB.from(table).upsert(rows,{onConflict:"id"});}catch(e){console.log("SB error",e);}};
+const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{const{error}=await SB.from(table).upsert(rows,{onConflict:"id"});if(error){console.log("SB error",table,error);return false;}return true;}catch(e){console.log("SB error",table,e);return false;}};
+let syncStatusCb=null;
+const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
 const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -70,15 +72,21 @@ const initData = () => {
 };
 const save = (d) => {
   localStorage.setItem("shinkore_v2", JSON.stringify(d));
-  pushToSB("sm_users", d.users||[]);
-  pushToSB("sm_stalls", d.stalls||[]);
-  pushToSB("sm_allocations", d.allocations||[]);
-  pushToSB("sm_attendance", d.attendance||[]);
-  pushToSB("sm_client_payments", d.client_payments||[]);
-  pushToSB("sm_handovers", d.handovers||[]);
-  pushToSB("sm_expenses", d.expenses||[]);
-  pushToSB("sm_salary", d.salary||[]);
-  pushToSB("sm_personal", d.personal||[]);
+  if(syncStatusCb) syncStatusCb("syncing");
+  Promise.all([
+    pushToSB("sm_users", d.users||[]),
+    pushToSB("sm_stalls", d.stalls||[]),
+    pushToSB("sm_allocations", d.allocations||[]),
+    pushToSB("sm_attendance", d.attendance||[]),
+    pushToSB("sm_client_payments", d.client_payments||[]),
+    pushToSB("sm_handovers", d.handovers||[]),
+    pushToSB("sm_expenses", d.expenses||[]),
+    pushToSB("sm_salary", d.salary||[]),
+    pushToSB("sm_personal", d.personal||[])
+  ]).then(function(results){
+    var allOk=results.every(function(r){return r===true;});
+    if(syncStatusCb) syncStatusCb(allOk?"synced":"failed");
+  });
 };
 const genId = () => Math.random().toString(36).slice(2,10);
 const formatPKR = (n) => `PKR ${Number(n||0).toLocaleString()}`;
@@ -4144,6 +4152,8 @@ export default function App(){
   const [data,setData]=useState(initData());
   const [toastMsg,setToastMsg]=useState("");
   const [sideOpen,setSideOpen]=useState(false);
+  const [syncState,setSyncState]=useState("synced");
+  useEffect(()=>{setSyncStatusCb(setSyncState);},[]);
 
   const toast=(m)=>setToastMsg(m);
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
@@ -4206,6 +4216,9 @@ export default function App(){
             </button>
             <div className="tb-title">{titles[page]||page}</div>
             <div className="tb-sub">{COMPANY}</div>
+            {syncState==="syncing"&&<span title="Syncing to cloud" style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(240,165,0,.15)",border:"1px solid rgba(240,165,0,.3)",color:"var(--or)",marginRight:8}}>⏳ Syncing</span>}
+            {syncState==="failed"&&<span title="Saved on device but cloud sync failed. Check connection." style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(231,76,60,.15)",border:"1px solid rgba(231,76,60,.3)",color:"var(--rd)",marginRight:8}}>⚠️ Not synced</span>}
+            {syncState==="synced"&&<span title="All changes synced to cloud" style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(46,204,113,.12)",border:"1px solid rgba(46,204,113,.25)",color:"var(--g)",marginRight:8}}>✅ Synced</span>}
             <button className="bic" onClick={logout} title="Logout"><I n="out" s={15}/></button>
           </div>
           <div className="content">{render()}</div>
