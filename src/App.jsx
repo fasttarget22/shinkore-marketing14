@@ -917,6 +917,14 @@ function AllocPage({data,setData,toast}){
     setData(d);save(d);setShow(false);toast("Allocation saved!");
   };
 
+  const updateDuty=(a)=>{
+    var current=a.duty_start||"09:00";
+    var nt=prompt("New duty start time (HH:MM, 24-hour):",current);
+    if(!nt)return;
+    if(!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(nt)){toast("Invalid time. Use HH:MM like 09:00 or 14:30.");return;}
+    var d={...data,allocations:data.allocations.map(function(x){return x.id===a.id?{...x,duty_start:nt}:x;})};
+    setData(d);save(d);toast("Duty time updated to "+nt);
+  };
   const doDeactivate=(a)=>{
     const d={...data,allocations:data.allocations.map(x=>x.id===a.id?{...x,active:false}:x)};
     setData(d);save(d);toast("Allocation ended.");
@@ -1020,6 +1028,7 @@ function AllocPage({data,setData,toast}){
                   <div className="alc-kv"><div className="alc-k">To</div><div className="alc-v" style={{fontSize:12}}>{a.to_date||"Open"}</div></div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
+                  <button className="bs" onClick={()=>updateDuty(a)} style={{fontSize:12}}>🕐 Change Duty Time</button>
                   <button className="bw" onClick={()=>sendWA(u.phone,`Shinkore Marketing: Aap ko *${s.name}*, ${s.city} par allocate kiya gaya hai. Duty time: ${a.duty_start}. GPS check hoga.`)}><I n="wa" s={13}/>Notify {u.name.split(" ")[0]}</button>
                   <button className="brd" onClick={()=>doDeactivate(a)} style={{marginLeft:"auto"}}><I n="del" s={13}/>End Allocation</button>
                 </div>
