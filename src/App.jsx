@@ -1018,7 +1018,27 @@ function AllocPage({data,setData,toast}){
     if(!f.stall_id||!f.user_id) return toast("Select stall and staff.");
     const d={...data};
     d.allocations.push({id:genId(),...f,daily_rate:Number(f.daily_rate),active:true});
-    setData(d);save(d);setShow(false);toast("Allocation saved!");
+    setData(d);save(d);setShow(false);
+    var allocUser=(d.users||[]).find(function(u){return u.id===f.user_id;});
+    var allocStall=(d.stalls||[]).find(function(s){return s.id===f.stall_id;});
+    if(allocUser&&allocStall){
+      var roleLabel=allocUser.role==="ba"?"Business Ambassador":"Supervisor";
+      var msg="🌟 *SHINKORE MARKETING*\n\n"+
+        "Assalam o Alaikum *"+allocUser.name+"*!\n\n"+
+        "Aap ko naya kaam assign kiya gaya hai:\n\n"+
+        "📍 *Store:* "+allocStall.name+"\n"+
+        "🏙️ *City:* "+allocStall.city+"\n"+
+        "🕐 *Duty Time:* "+f.duty_start+"\n"+
+        "💼 *Role:* "+roleLabel+"\n"+
+        "📅 *From:* "+f.from_date+"\n\n"+
+        "📱 *App Login:*\n"+
+        "Phone: "+allocUser.phone+"\n"+
+        "PIN: "+(allocUser.pin||"1234")+"\n\n"+
+        "App Link: https://shinkore-marketing14.pages.dev\n\n"+
+        "Mehnat aur imandari se kaam karein.\n— Khalid Orakzai, CEO";
+      sendWA(allocUser.phone,msg);
+    }
+    toast("Allocation saved! WhatsApp opening...");
   };
 
   const updateDuty=(a)=>{
