@@ -14,7 +14,7 @@ const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{con
 let syncStatusCb=null;
 const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
 const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delete().eq("id",id);if(error){console.log("SB delete error",table,error);return false;}return true;}catch(e){console.log("SB delete error",table,e);return false;}};
-const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
+const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done","sm_documents"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = "Khalid";
@@ -64,6 +64,7 @@ const initData = () => {
     handovers: [],
     expenses: [],
     salary: [],
+    documents: [],
     personal: [],
     activity_photos: [],
     stock_items: [],
@@ -94,6 +95,7 @@ const save = (d) => {
     pushToSB("sm_handovers", d.handovers||[]),
     pushToSB("sm_expenses", d.expenses||[]),
     pushToSB("sm_salary", d.salary||[]),
+    pushToSB("sm_documents", d.documents||[]),
     pushToSB("sm_personal", d.personal||[]),
     pushToSB("sm_trainings", d.trainings||[]),
     pushToSB("sm_training_done", d.training_done||[])
@@ -251,6 +253,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"clients",icon:"users",label:"Clients"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
+    {id:"documents",icon:"pdf",label:"Document History"},
     {id:"settings",icon:"set",label:"Settings / CallMeBot"},
     {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
@@ -260,6 +263,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
+    {id:"documents",icon:"pdf",label:"My Documents"},
     {id:"activity",icon:"map",label:"Activity Reports"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"alerts",icon:"alert",label:"Late Alerts"},
@@ -269,6 +273,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
     {id:"my-salary",icon:"money",label:"My Salary"},
+    {id:"documents",icon:"pdf",label:"My Documents"},
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"training",icon:"users",label:"Training"},
@@ -276,6 +281,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
   ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
+    {id:"documents",icon:"pdf",label:"My Documents"},
   ];
   const clientNav=[
     {id:"client_dash",icon:"dash",label:"My Dashboard"},
@@ -2382,6 +2388,13 @@ function SalaryPage({data,setData,toast}){
     if(!u) return;
     const html=generateSlipHTML(u,rec,data.stalls,data.allocations);
     openPrint(html);
+    // Archive to document history
+    var docs=(data.documents||[]).slice();
+    var existsIdx=docs.findIndex(function(x){return x.type==="salary_slip"&&x.user_id===u.id&&x.month===rec.month;});
+    var docRec={id:existsIdx>-1?docs[existsIdx].id:genId(),user_id:u.id,user_name:u.name,type:"salary_slip",title:"Salary Slip — "+rec.month,month:rec.month,content_html:html,generated_date:new Date().toISOString().slice(0,10),generated_by:"admin"};
+    if(existsIdx>-1)docs[existsIdx]=docRec;else docs.push(docRec);
+    var nd={...data,documents:docs};
+    setData(nd);save(nd);
   };
 
   const shareSlipWA=(rec)=>{
@@ -3646,7 +3659,48 @@ function TrainingPage({user,data,setData,toast}){
 
 
 // ─── LETTERS & DOCUMENTS PAGE ─────────────────────────────────────────────────
-function LettersPage({data,toast}){
+function DocumentsPage({data,user,toast}){
+  const isAdmin=user.role==="admin";
+  const [filter,setFilter]=useState("all");
+  var allDocs=(data.documents||[]).slice().sort(function(a,b){return (b.generated_date||"").localeCompare(a.generated_date||"");});
+  var myDocs=isAdmin?allDocs:allDocs.filter(function(d){return d.user_id===user.id;});
+  if(filter!=="all")myDocs=myDocs.filter(function(d){return d.type===filter;});
+  var reprint=function(doc){
+    if(!doc.content_html){toast("No saved copy available.");return;}
+    openPrint(doc.content_html);
+  };
+  var typeLabel=function(t){return t==="salary_slip"?"Salary Slip":t==="letter"?"Letter":t;};
+  var typeColor=function(t){return t==="salary_slip"?"var(--g)":"var(--bl)";};
+  return(
+    <div>
+      <div className="card" style={{marginBottom:16}}>
+        <div className="ch"><I n="pdf" s={16} c="var(--g)"/><div style={{flex:1}}><div className="ct">{isAdmin?"All Documents":"My Documents"}</div><div className="cs">{myDocs.length} saved {myDocs.length===1?"document":"documents"}</div></div></div>
+        <div className="cb">
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+            <button className={filter==="all"?"bg":"bs"} onClick={function(){setFilter("all");}} style={{fontSize:12}}>All</button>
+            <button className={filter==="salary_slip"?"bg":"bs"} onClick={function(){setFilter("salary_slip");}} style={{fontSize:12}}>Salary Slips</button>
+            <button className={filter==="letter"?"bg":"bs"} onClick={function(){setFilter("letter");}} style={{fontSize:12}}>Letters</button>
+          </div>
+          {myDocs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)",fontSize:13}}>No documents yet.</div>}
+          {myDocs.map(function(doc){
+            return(
+              <div key={doc.id} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                <div style={{width:38,height:38,borderRadius:9,background:"rgba(201,168,76,.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><I n="pdf" s={17} c={typeColor(doc.type)}/></div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600}}>{doc.title}</div>
+                  <div style={{fontSize:11,color:"var(--txd)"}}>{isAdmin?doc.user_name+" · ":""}{typeLabel(doc.type)} · {doc.generated_date}</div>
+                </div>
+                <button className="bs" onClick={function(){reprint(doc);}} style={{fontSize:12,flexShrink:0}}><I n="pdf" s={13}/>Open</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LettersPage({data,toast,setData,save}){
   const LETTER_TYPES=[
     {id:"bank",label:"Bank Account Opening Request",to:"The Branch Manager"},
     {id:"employment",label:"Employment / Appointment Letter",to:""},
@@ -3717,6 +3771,15 @@ function LettersPage({data,toast}){
       '<div class="foot">This is an official document issued by Shinkore Marketing | www.appabbottabad.com</div>'+
       "</body></html>";
     openPrint(html);
+    // Archive letter to document history
+    if(setData&&save){
+      var emp=empId?(data.users||[]).find(function(x){return x.id===empId;}):null;
+      var docs=(data.documents||[]).slice();
+      var docRec={id:genId(),user_id:emp?emp.id:"",user_name:emp?emp.name:(recipient||"General"),type:"letter",title:(subject||type.label),month:"",content_html:html,generated_date:new Date().toISOString().slice(0,10),generated_by:"admin"};
+      docs.push(docRec);
+      var nd={...data,documents:docs};
+      setData(nd);save(nd);
+    }
   };
 
   return(
@@ -4570,7 +4633,7 @@ export default function App(){
   // Step 6: Pull fresh data from cloud on startup + every 30s, merge in.
   useEffect(()=>{
     var stop=false;
-    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_personal:"personal",sm_trainings:"trainings",sm_training_done:"training_done"};
+    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_documents:"documents",sm_personal:"personal",sm_trainings:"trainings",sm_training_done:"training_done"};
     var pull=async function(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
@@ -4607,7 +4670,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -4627,7 +4690,8 @@ export default function App(){
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
-        case "letters": return <LettersPage data={data} toast={toast}/>;
+        case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
+        case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
         case "client_dash": return <ClientDashPage user={user} data={data} toast={toast} setPage={setPage}/>;
         case "settings": return <SettingsPage data={data} setData={setData} toast={toast}/>;
         case "sync": return <SyncPage data={data} setData={setData} toast={toast}/>;
