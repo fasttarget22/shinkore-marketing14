@@ -256,6 +256,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"alerts",icon:"alert",label:"Late Alerts"},
     {id:"training",icon:"users",label:"Training"},
+    {id:"pitch",icon:"users",label:"📣 Pitch Script"},
   ]:[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
@@ -263,6 +264,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"training",icon:"users",label:"Training"},
+    {id:"pitch",icon:"users",label:"📣 Pitch Script"},
   ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
@@ -3574,6 +3576,69 @@ function LettersPage({data,toast}){
 }
 
 
+// ─── PITCH SCRIPT PAGE ────────────────────────────────────────────────────────
+function PitchPage({user,data,toast}){
+  var myAlloc=(data.allocations||[]).find(function(a){return a.user_id===user.id&&a.active;});
+  var myStall=myAlloc?(data.stalls||[]).find(function(s){return s.id===myAlloc.stall_id;}):null;
+  var brand=myStall?(myStall.client||""):"";
+  var store=myStall?(myStall.name+", "+myStall.city):"";
+  const [product,setProduct]=useState("");
+  const [features,setFeatures]=useState("");
+  const [script,setScript]=useState("");
+  const [loading,setLoading]=useState(false);
+
+  const generate=async()=>{
+    if(!product.trim()){toast("Product ka naam likhein.");return;}
+    setLoading(true);setScript("");
+    try{
+      var prompt="You are a retail training manager for a supermarket marketing company in Pakistan. Create a WhatsApp-style pitch script for a Brand Ambassador standing in a supermarket. "+
+        "Brand: "+(brand||"(general)")+". Store: "+(store||"supermarket")+". Product: "+product+". Key features: "+(features||"(not specified)")+".\n\n"+
+        "Output ONLY in Roman Urdu (Urdu written in English alphabet, e.g. 'Assalam o Alaikum, ye product aap ke liye behtareen hai'). Do NOT use Urdu script. Do NOT use English sentences.\n\n"+
+        "Structure the message in exactly 3 labelled parts:\n"+
+        "1) HOOK: ek polite, local, 1-sentence opening jo guzarte hue shopper ko roke.\n"+
+        "2) PITCH: 2 sentences jo BENEFIT par focus karein (sirf feature nahi), kyun ye product unko chahiye.\n"+
+        "3) CALL TO ACTION: ek clear instruction ke checkout par ye product khareed lein.\n\n"+
+        "Tone: helpful aur informative expert consultant, pushy salesman nahi. Keep it natural and warm.";
+      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
+      var json=await res.json();
+      setScript(json.choices&&json.choices[0]?json.choices[0].message.content:"Script nahi bani. Dobara try karein.");
+    }catch(e){setScript("Connection error. Internet check karein.");}
+    setLoading(false);
+  };
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:16}}>
+        <div className="ch"><div style={{fontSize:20}}>📣</div><div style={{flex:1}}><div className="ct">Pitch Script Generator</div><div className="cs">WhatsApp-style shopper pitch (Roman Urdu)</div></div></div>
+        <div className="cb">
+          {myStall?(
+            <div style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13}}>
+              <div style={{color:"var(--txd)",fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Aap ki Allocation</div>
+              🏪 <strong>{store}</strong>{brand?<span> · Brand: <strong style={{color:"var(--g)"}}>{brand}</strong></span>:null}
+            </div>
+          ):(
+            <div className="info info-warn" style={{marginBottom:12}}><I n="alert" s={13}/>Aap kisi stall par allocate nahi hain. Phir bhi product ka script bana sakte hain.</div>
+          )}
+          <div className="fg"><label className="fl">Product ka Naam</label><input className="fi" value={product} onChange={e=>setProduct(e.target.value)} placeholder="e.g. Brite Washing Powder 1kg"/></div>
+          <div className="fg"><label className="fl">Khaas Features / Khoobiyan (optional)</label><input className="fi" value={features} onChange={e=>setFeatures(e.target.value)} placeholder="e.g. zyada jhaag, kam paani, daag foran saaf"/></div>
+          <button className="bg" onClick={generate} disabled={loading} style={{width:"100%",justifyContent:"center"}}>{loading?"⏳ Script ban rahi hai...":"✨ Script Banayein"}</button>
+        </div>
+      </div>
+      {script&&<div className="card">
+        <div className="ch"><div style={{fontSize:18}}>💬</div><div className="ct">Aap ka Pitch Script</div></div>
+        <div className="cb">
+          <div style={{background:"var(--d3)",borderRadius:10,padding:"14px",fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",color:"var(--tx)"}}>{script}</div>
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button className="bs" onClick={()=>{navigator.clipboard.writeText(script);toast("Copy ho gaya!");}} style={{flex:1,justifyContent:"center"}}>📋 Copy</button>
+            <button className="bw" onClick={()=>sendWA("",script)} style={{flex:1,justifyContent:"center"}}><I n="wa" s={14}/>WhatsApp</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+
 // ─── ASK AI PAGE ──────────────────────────────────────────────────────────────
 function AskAIPage({data,user}){
   const [messages,setMessages]=useState([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! I'm your Shinkore AI assistant. I have access to all your business data — staff, attendance, activities, salary, cash, clients and stalls. Ask me anything!"}]);
@@ -4403,6 +4468,7 @@ export default function App(){
         case "my-activity": return isAllocated?<ActivityPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
         case "training": return <TrainingPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "pitch": return <PitchPage user={user} data={data} toast={toast}/>;
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
