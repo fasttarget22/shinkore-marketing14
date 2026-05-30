@@ -663,6 +663,9 @@ function StaffPage({data,setData,toast}){
             <div className="mh"><div className="mt">{editing?"Edit Staff":"Add Staff"}</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
             <div className="mb">
               <div className="frow">
+                <div className="fg" style={{flexBasis:"100%"}}>
+                  {("contacts" in navigator && "ContactsManager" in window)&&<button type="button" onClick={async()=>{try{var sel=await navigator.contacts.select(["name","tel"],{multiple:false});if(sel&&sel[0]){var picked=sel[0];if(picked.name&&picked.name[0])set("name",picked.name[0]);if(picked.tel&&picked.tel[0]){var num=picked.tel[0].replace(/\s|-/g,"");set("phone",num);}toast("Contact picked!");}}catch(err){toast("Could not open contacts.");}}} style={{width:"100%",marginBottom:10,background:"rgba(58,155,213,.12)",border:"1px solid rgba(58,155,213,.3)",borderRadius:8,padding:"8px",cursor:"pointer",color:"var(--bl)",fontSize:13,fontWeight:600}}>📇 Pick from Phone Contacts</button>}
+                </div>
                 <div className="fg"><label className="fl">Full Name</label><input className="fi" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="Full name"/></div>
                 <div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>set("phone",e.target.value)} placeholder="03001234567"/></div>
               </div>
