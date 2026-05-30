@@ -2504,7 +2504,7 @@ function PersonalPage({data,setData,toast}){
   const doDelete=(item)=>{if(!confirm("Delete this record?"))return;const d={...data,personal:(data.personal||[]).filter(x=>x.id!==item.id)};setData(d);save(d);deleteFromSB("sm_personal",item.id);toast("Deleted.");};
   const personal=data.personal||[];
 
-  const totalFuel=personal.filter(x=>x.category==="fuel").reduce((s,x)=>s+Number(x.amount),0);
+  const totalFuel=personal.filter(x=>x.category==="fuel"&&x.type!=="loan_given"&&x.type!=="loan_received").reduce((s,x)=>s+Number(x.amount),0);
   const totalMaint=personal.filter(x=>x.category==="maintenance").reduce((s,x)=>s+Number(x.amount),0);
   const loansGiven=personal.filter(x=>x.type==="loan_given"&&x.status==="pending").reduce((s,x)=>s+Number(x.amount),0);
   const loansReceived=personal.filter(x=>x.type==="loan_received"&&x.status==="pending").reduce((s,x)=>s+Number(x.amount),0);
@@ -2512,9 +2512,12 @@ function PersonalPage({data,setData,toast}){
 
   const doSave=()=>{
     if(!f.amount) return toast("Enter amount.");
+    // Clear stale category on loans so they don't show under Car/Fuel
+    var clean={...f,amount:Number(f.amount)};
+    if(clean.type==="loan_given"||clean.type==="loan_received"){clean.category="loan";}
     let d;
-    if(editing){d={...data,personal:(data.personal||[]).map(x=>x.id===editing.id?{...x,...f,amount:Number(f.amount)}:x)};}
-    else{d={...data,personal:[...(data.personal||[]),{id:genId(),...f,amount:Number(f.amount)}]};}
+    if(editing){d={...data,personal:(data.personal||[]).map(x=>x.id===editing.id?{...x,...clean}:x)};}
+    else{d={...data,personal:[...(data.personal||[]),{id:genId(),...clean}]};}
     setData(d);save(d);setShow(false);setEditing(null);toast(editing?"Updated!":"Saved!");
   };
 
@@ -2569,8 +2572,8 @@ function PersonalPage({data,setData,toast}){
         <div className="card">
           <div className="ch"><I n="set" s={17} c="var(--g)"/><div className="ct">Car Expenses</div></div>
           <div className="cb">
-            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)).length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No car expenses yet.</div>}
-            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)).map(item=>(
+            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)&&x.type!=="loan_given"&&x.type!=="loan_received").length===0&&<div style={{color:"var(--txd)",fontSize:13}}>No car expenses yet.</div>}
+            {personal.filter(x=>["fuel","maintenance","other_car"].includes(x.category)&&x.type!=="loan_given"&&x.type!=="loan_received").map(item=>(
               <div key={item.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
                 <div>
                   <div style={{fontWeight:600,fontSize:13,textTransform:"capitalize"}}>{item.category}</div>
