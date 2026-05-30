@@ -2495,8 +2495,13 @@ function MySalaryPage({user,data}){
 function PersonalPage({data,setData,toast}){
   const [tab,setTab]=useState("overview");
   const [show,setShow]=useState(false);
-  const [f,setF]=useState({type:"expense",category:"fuel",amount:"",date:new Date().toISOString().slice(0,10),person_name:"",description:"",status:"paid",notes:""});
+  const [editing,setEditing]=useState(null);
+  const emptyRec={type:"expense",category:"fuel",amount:"",date:new Date().toISOString().slice(0,10),person_name:"",description:"",status:"paid",notes:""};
+  const [f,setF]=useState(emptyRec);
   const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const openAdd=()=>{setEditing(null);setF(emptyRec);setShow(true);};
+  const openEdit=(item)=>{setEditing(item);setF({type:item.type||"expense",category:item.category||"fuel",amount:String(item.amount||""),date:item.date||new Date().toISOString().slice(0,10),person_name:item.person_name||"",description:item.description||"",status:item.status||"paid",notes:item.notes||""});setShow(true);};
+  const doDelete=(item)=>{if(!confirm("Delete this record?"))return;const d={...data,personal:(data.personal||[]).filter(x=>x.id!==item.id)};setData(d);save(d);deleteFromSB("sm_personal",item.id);toast("Deleted.");};
   const personal=data.personal||[];
 
   const totalFuel=personal.filter(x=>x.category==="fuel").reduce((s,x)=>s+Number(x.amount),0);
@@ -2507,8 +2512,10 @@ function PersonalPage({data,setData,toast}){
 
   const doSave=()=>{
     if(!f.amount) return toast("Enter amount.");
-    const d={...data,personal:[...(data.personal||[]),{id:genId(),...f,amount:Number(f.amount)}]};
-    setData(d);save(d);setShow(false);toast("Saved!");
+    let d;
+    if(editing){d={...data,personal:(data.personal||[]).map(x=>x.id===editing.id?{...x,...f,amount:Number(f.amount)}:x)};}
+    else{d={...data,personal:[...(data.personal||[]),{id:genId(),...f,amount:Number(f.amount)}]};}
+    setData(d);save(d);setShow(false);setEditing(null);toast(editing?"Updated!":"Saved!");
   };
 
   const markPaid=(item)=>{
@@ -2529,7 +2536,7 @@ function PersonalPage({data,setData,toast}){
         {["overview","car","loans"].map(t=>(
           <button key={t} className={tab===t?"bg":"bs"} onClick={()=>setTab(t)} style={{textTransform:"capitalize"}}>{t==="overview"?"Overview":t==="car"?"Car & Fuel":"Loans"}</button>
         ))}
-        <button className="bg" onClick={()=>setShow(true)} style={{marginLeft:"auto"}}><I n="plus" s={15}/>Add Record</button>
+        <button className="bg" onClick={openAdd} style={{marginLeft:"auto"}}><I n="plus" s={15}/>Add Record</button>
       </div>
 
       {tab==="overview"&&(
@@ -2548,6 +2555,10 @@ function PersonalPage({data,setData,toast}){
                   <div style={{fontFamily:"Rajdhani",fontSize:16,color:item.type==="loan_received"?"var(--gr)":"var(--rd)"}}>{formatPKR(item.amount)}</div>
                   <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
                 </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <button className="bic" onClick={()=>openEdit(item)} style={{padding:5}}><I n="edit" s={12}/></button>
+                  <button className="bic" onClick={()=>doDelete(item)} style={{padding:5,color:"var(--rd)"}}><I n="del" s={12}/></button>
+                </div>
               </div>
             ))}
           </div>
@@ -2565,7 +2576,11 @@ function PersonalPage({data,setData,toast}){
                   <div style={{fontWeight:600,fontSize:13,textTransform:"capitalize"}}>{item.category}</div>
                   <div style={{fontSize:11,color:"var(--txd)"}}>{item.description||""} · {item.date}</div>
                 </div>
-                <div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--rd)"}}>{formatPKR(item.amount)}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--rd)"}}>{formatPKR(item.amount)}</div>
+                  <button className="bic" onClick={()=>openEdit(item)} style={{padding:5}}><I n="edit" s={12}/></button>
+                  <button className="bic" onClick={()=>doDelete(item)} style={{padding:5,color:"var(--rd)"}}><I n="del" s={12}/></button>
+                </div>
               </div>
             ))}
           </div>
@@ -2589,6 +2604,10 @@ function PersonalPage({data,setData,toast}){
                     <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
                   </div>
                   {item.status==="pending"&&<button className="bg" onClick={()=>markPaid(item)} style={{fontSize:11,padding:"5px 10px"}}><I n="ok" s={12}/>Paid</button>}
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    <button className="bic" onClick={()=>openEdit(item)} style={{padding:5}}><I n="edit" s={12}/></button>
+                    <button className="bic" onClick={()=>doDelete(item)} style={{padding:5,color:"var(--rd)"}}><I n="del" s={12}/></button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2608,6 +2627,10 @@ function PersonalPage({data,setData,toast}){
                     <span className={item.status==="paid"?"b b-active":"b b-pending"}>{item.status}</span>
                   </div>
                   {item.status==="pending"&&<button className="bg" onClick={()=>markPaid(item)} style={{fontSize:11,padding:"5px 10px"}}><I n="ok" s={12}/>Paid</button>}
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    <button className="bic" onClick={()=>openEdit(item)} style={{padding:5}}><I n="edit" s={12}/></button>
+                    <button className="bic" onClick={()=>doDelete(item)} style={{padding:5,color:"var(--rd)"}}><I n="del" s={12}/></button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2618,7 +2641,7 @@ function PersonalPage({data,setData,toast}){
       {show&&(
         <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
           <div className="md">
-            <div className="mh"><div className="mt">Add Personal Record</div><div className="mc" onClick={()=>setShow(false)}>x</div></div>
+            <div className="mh"><div className="mt">{editing?"Edit Record":"Add Personal Record"}</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
             <div className="mb">
               <div className="fg"><label className="fl">Type</label>
                 <select className="fsel" value={f.type} onChange={e=>sf("type",e.target.value)}>
