@@ -217,7 +217,7 @@ function Login({onLogin}){
     <div className="lw">
       <div className="lc">
         <div className="brand">
-          <div className="brand-ic">SM</div>
+          <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:56,height:56,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",boxShadow:"0 4px 16px rgba(201,168,76,.2)",flexShrink:0}}/>
           <div><h1>SHINKORE</h1><p>Marketing Operations</p></div>
         </div>
         <div style={{textAlign:"center",marginBottom:8,fontSize:12,color:"var(--txd)"}}>Sign in with your phone and PIN provided by admin</div>
@@ -310,6 +310,16 @@ function Sidebar({user,data,page,setPage,open,onClose}){
 
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 function AdminDash({data,toast,setPage}){
+  const hour = new Date().getHours();
+  const greeting = hour<12?"Good Morning":hour<17?"Good Afternoon":"Good Evening";
+  const quotes = [
+    "Building Brands. Empowering Teams. Delivering Excellence.",
+    "Excellence is not a destination — it is a continuous journey.",
+    "Great teams don't happen by chance. They are built with purpose.",
+    "Every stall. Every BA. Every day. That is how we win.",
+    "Field excellence today. Market leadership tomorrow."
+  ];
+  const quote = quotes[new Date().getDay() % quotes.length];
   const todayDate=new Date().toISOString().slice(0,10);
   const [alertPopup,setAlertPopup]=useState(null);
   const [alertDismissed,setAlertDismissed]=useState([]);
@@ -398,6 +408,29 @@ function AdminDash({data,toast,setPage}){
 
   return(
     <div>
+      <div style={{background:"linear-gradient(135deg,rgba(201,168,76,.1) 0%,rgba(201,168,76,.03) 60%,transparent 100%)",border:"1px solid rgba(201,168,76,.22)",borderRadius:18,padding:"20px 22px",marginBottom:22,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:-50,right:-50,width:200,height:200,borderRadius:"50%",background:"radial-gradient(circle,rgba(201,168,76,.1) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
+          <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:58,height:58,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",flexShrink:0,boxShadow:"0 4px 16px rgba(201,168,76,.25)"}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)",letterSpacing:.5,lineHeight:1,whiteSpace:"nowrap"}}>SHINKORE MARKETING</div>
+            <div style={{fontSize:10,color:"var(--txd)",letterSpacing:1.5,textTransform:"uppercase",marginTop:2,whiteSpace:"nowrap"}}>Marketing Operations</div>
+            <div style={{fontSize:10,color:"var(--txd)",marginTop:4,display:"flex",flexDirection:"column",gap:2}}>
+              <span>👤 CEO: Khalid Orakzai</span>
+              <span>📍 Civil Officer Col Office 28, Abbottabad</span>
+            </div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>{greeting}</div>
+            <div style={{fontFamily:"Rajdhani",fontSize:15,fontWeight:700,color:"var(--g)",marginTop:2}}>{new Date().toLocaleDateString("en-PK",{weekday:"short",day:"numeric",month:"short"})}</div>
+          </div>
+        </div>
+        <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(201,168,76,.35),transparent)",marginBottom:14}}/>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:3,height:30,background:"linear-gradient(180deg,var(--g),transparent)",borderRadius:2,flexShrink:0}}/>
+          <div style={{fontSize:12,color:"var(--tx)",fontStyle:"italic",lineHeight:1.6,opacity:.85}}>"{quote}"</div>
+        </div>
+      </div>
       <div className="sg">
         <div className="sc gold" onClick={()=>setPage&&setPage("staff")} style={{cursor:"pointer"}}><div className="si gold"><I n="users" s={18}/></div><div className="sv">{staff.length}</div><div className="sl">Total Staff</div></div>
         <div className="sc bl" onClick={()=>setPage&&setPage("stalls")} style={{cursor:"pointer"}}><div className="si bl"><I n="pin" s={18}/></div><div className="sv">{(data.stalls||[]).length}</div><div className="sl">Active Stalls</div></div>
@@ -1311,7 +1344,8 @@ function ClockPage({user,data,setData,toast}){
               <span className={`b ${att?"b-active":"b-pending"}`}>{att?att.clock_out?"Done":"On Duty":"Not In"}</span>
             </div>
             <div className="cb">
-              <div style={{fontSize:12,color:"var(--txd)",marginBottom:12}}>GPS Target: {Number(stall.lat).toFixed(5)}, {Number(stall.lng).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
+              <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>GPS Target: {Number(stall.lat).toFixed(5)}, {Number(stall.lng).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
+              <a href={"https://maps.google.com/?q="+stall.lat+","+stall.lng} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(58,155,213,.12)",border:"1px solid rgba(58,155,213,.3)",borderRadius:8,padding:"7px 14px",fontSize:13,color:"var(--bl)",fontWeight:600,textDecoration:"none",marginBottom:12}}>📍 View Store on Map</a>
               {!att?(
                 <button className="bgps" onClick={()=>doClockIn(alloc)}>
                   <div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:700,color:"var(--gr)"}}>CLOCK IN</div><div style={{fontSize:12,color:"var(--txd)"}}>GPS will be verified</div></div>
