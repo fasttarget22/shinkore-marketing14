@@ -217,7 +217,7 @@ function Login({onLogin}){
     <div className="lw">
       <div className="lc">
         <div className="brand">
-          <div className="brand-ic">SM</div>
+          <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:56,height:56,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",boxShadow:"0 4px 16px rgba(201,168,76,.2)",flexShrink:0}}/>
           <div><h1>SHINKORE</h1><p>Marketing Operations</p></div>
         </div>
         <div style={{textAlign:"center",marginBottom:8,fontSize:12,color:"var(--txd)"}}>Sign in with your phone and PIN provided by admin</div>

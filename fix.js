@@ -2,15 +2,15 @@ const fs = require("fs");
 const p = "src/App.jsx";
 let c = fs.readFileSync(p, "utf8");
 
-const old = "return(\r\n    <div>\r\n      <div className=\"sg\">\r\n        <div className=\"sc gold\" onClick={()=>setPage&&setPage(\"staff\")} style={{cursor:\"pointer\"}}><div className=\"si gold\">";
+// Find brand-ic and replace with image
+const old = c.slice(c.indexOf('<div className="brand-ic">'), c.indexOf('<div className="brand-ic">') + 35);
+console.log("Found:", JSON.stringify(old));
 
-const neu = "return(\r\n    <div>\r\n      <div style={{background:\"linear-gradient(135deg,rgba(201,168,76,.1) 0%,rgba(201,168,76,.03) 60%,transparent 100%)\",border:\"1px solid rgba(201,168,76,.22)\",borderRadius:18,padding:\"20px 22px\",marginBottom:22,position:\"relative\",overflow:\"hidden\"}}>\r\n        <div style={{position:\"absolute\",top:-50,right:-50,width:200,height:200,borderRadius:\"50%\",background:\"radial-gradient(circle,rgba(201,168,76,.1) 0%,transparent 70%)\",pointerEvents:\"none\"}}/>\r\n        <div style={{display:\"flex\",alignItems:\"center\",gap:16,marginBottom:14}}>\r\n          <img src=\"https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg\" alt=\"Logo\" style={{width:58,height:58,borderRadius:12,objectFit:\"cover\",border:\"2px solid rgba(201,168,76,.5)\",flexShrink:0,boxShadow:\"0 4px 16px rgba(201,168,76,.25)\"}}/>\r\n          <div style={{flex:1,minWidth:0}}>\r\n            <div style={{fontFamily:\"Rajdhani\",fontSize:20,fontWeight:700,color:\"var(--g)\",letterSpacing:.5,lineHeight:1}}>SHINKORE MARKETING</div>\r\n            <div style={{fontSize:11,color:\"var(--txd)\",letterSpacing:2,textTransform:\"uppercase\",marginTop:3}}>Marketing Operations Platform</div>\r\n            <div style={{fontSize:11,color:\"var(--txd)\",marginTop:5,display:\"flex\",gap:14,flexWrap:\"wrap\"}}>\r\n              <span>CEO: Khalid Orakzai</span>\r\n              <span>Civil Officer Col Office 28, Abbottabad</span>\r\n            </div>\r\n          </div>\r\n          <div style={{textAlign:\"right\",flexShrink:0}}>\r\n            <div style={{fontSize:10,color:\"var(--txd)\",textTransform:\"uppercase\",letterSpacing:1}}>{greeting}</div>\r\n            <div style={{fontFamily:\"Rajdhani\",fontSize:15,fontWeight:700,color:\"var(--g)\",marginTop:2}}>{new Date().toLocaleDateString(\"en-PK\",{weekday:\"short\",day:\"numeric\",month:\"short\"})}</div>\r\n          </div>\r\n        </div>\r\n        <div style={{height:1,background:\"linear-gradient(90deg,transparent,rgba(201,168,76,.35),transparent)\",marginBottom:14}}/>\r\n        <div style={{display:\"flex\",alignItems:\"center\",gap:10}}>\r\n          <div style={{width:3,height:30,background:\"linear-gradient(180deg,var(--g),transparent)\",borderRadius:2,flexShrink:0}}/>\r\n          <div style={{fontSize:12,color:\"var(--tx)\",fontStyle:\"italic\",lineHeight:1.6,opacity:.85}}>\"{quote}\"</div>\r\n        </div>\r\n      </div>\r\n      <div className=\"sg\">\r\n        <div className=\"sc gold\" onClick={()=>setPage&&setPage(\"staff\")} style={{cursor:\"pointer\"}}><div className=\"si gold\">";
+const result = c.replace('<div className="brand-ic">SM</div>', '<img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:56,height:56,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",boxShadow:"0 4px 16px rgba(201,168,76,.2)",flexShrink:0}}/>');
 
-const idx = c.indexOf(old);
-if(idx > -1){
-  c = c.replace(old, neu);
-  fs.writeFileSync(p, c);
-  console.log("OK premium header added!");
+if(result !== c){
+  fs.writeFileSync(p, result);
+  console.log("OK logo replaced!");
 } else {
-  console.log("FAIL");
+  console.log("FAIL - not found");
 }
