@@ -2,7 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { css } from "./styles.js";
 import { createClient } from "@supabase/supabase-js";
 const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable_hPu0RIbvCd_DBCM4s2lH2g_U6CONZdr");
-const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{const{error}=await SB.from(table).upsert(rows,{onConflict:"id"});if(error){console.log("SB error",table,error);return false;}return true;}catch(e){console.log("SB error",table,e);return false;}};
+const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{const{error}=await SB.from(table).upsert(rows,{onConflict:"id"});if(!error)return true;console.log("SB batch error",table,error,"— retrying row by row");
+  // Batch failed (often one bad row). Retry individually so good rows still save.
+  let allOk=true;
+  for(const row of rows){
+    try{const{error:e2}=await SB.from(table).upsert([row],{onConflict:"id"});if(e2){console.log("SB row skipped",table,row.id,e2.message);allOk=false;}}
+    catch(er){console.log("SB row exception",table,row.id,er);allOk=false;}
+  }
+  return allOk;
+}catch(e){console.log("SB error",table,e);return false;}};
 let syncStatusCb=null;
 const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
 const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delete().eq("id",id);if(error){console.log("SB delete error",table,error);return false;}return true;}catch(e){console.log("SB delete error",table,e);return false;}};
