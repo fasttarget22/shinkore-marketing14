@@ -632,6 +632,11 @@ function StaffPage({data,setData,toast}){
                   <div className={`gps-dot ${u.callmebot_key?"":"red"}`} style={{width:7,height:7}}/>
                   <span style={{fontSize:11,color:u.callmebot_key?"var(--gr)":"var(--rd)"}}>{u.callmebot_key?"Auto-alert ✓":"No CallMeBot key"}</span>
                 </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,background:"var(--d3)",borderRadius:8,padding:"6px 10px"}}>
+                  <span style={{fontSize:11,color:"var(--txd)"}}>🔑 Login PIN:</span>
+                  <span style={{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:1}}>{u.pin||"— not set —"}</span>
+                  {u.pin&&<button onClick={()=>{navigator.clipboard.writeText(u.pin);toast("PIN copied!");}} style={{marginLeft:"auto",fontSize:10,background:"transparent",border:"1px solid var(--bo)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"var(--txd)"}}>Copy</button>}
+                </div>
                 <div style={{display:"flex",gap:8,paddingTop:12,borderTop:"1px solid var(--bo)"}}>
                   <button className="bic" onClick={()=>openEdit(u)}><I n="edit" s={14}/></button>
                   <button className="bw" onClick={()=>sendWA(u.phone,`Assalam o Alaikum ${u.name}!`)}><I n="wa" s={13}/>WA</button>
