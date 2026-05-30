@@ -569,6 +569,33 @@ function StaffPage({data,setData,toast}){
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const openAdd=()=>{setEditing(null);setF({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});setShow(true)};
+  const [showBulk,setShowBulk]=useState(false);
+  const [bulkText,setBulkText]=useState("");
+  const doBulkImport=()=>{
+    var lines=bulkText.split("\n").map(function(l){return l.trim();}).filter(Boolean);
+    if(lines.length===0){toast("Paste some names and numbers first.");return;}
+    var existingPhones={};
+    (data.users||[]).forEach(function(u){if(u.phone)existingPhones[u.phone.replace(/[^0-9]/g,"")]=true;});
+    var newUsers=[];var added=0,skipped=0;
+    lines.forEach(function(line){
+      // Skip header-like lines
+      if(/^name\s+phone/i.test(line)||/^contacts/i.test(line))return;
+      // Find the phone: last token containing 6+ digits
+      var m=line.match(/([+0-9][0-9\-\s]{6,})$/);
+      var phone="",name=line;
+      if(m){phone=m[1].trim();name=line.slice(0,m.index).trim();}
+      if(!name){skipped++;return;}
+      var digits=phone.replace(/[^0-9]/g,"");
+      if(digits&&existingPhones[digits]){skipped++;return;}
+      if(digits)existingPhones[digits]=true;
+      newUsers.push({id:genId(),name:name,phone:phone||"",role:"ba",daily_rate:0,team:"",callmebot_key:"",pin:"1234",paid_by:"admin"});
+      added++;
+    });
+    if(added===0){toast("Nothing new to add (all duplicates or empty).");return;}
+    var d={...data,users:[...(data.users||[]),...newUsers]};
+    setData(d);save(d);setShowBulk(false);setBulkText("");
+    toast(added+" staff added"+(skipped>0?", "+skipped+" skipped":"")+". PIN=1234, edit to fix details.");
+  };
   const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||"",paid_by:u.paid_by||"admin",pin:u.pin||"",sup_id:u.sup_id||"",cnic:u.cnic||"",cnic_front:u.cnic_front||"",cnic_back:u.cnic_back||"",photo:u.photo||"",address:u.address||"",emergency_name:u.emergency_name||"",emergency_phone:u.emergency_phone||"",join_date:u.join_date||"",bank_account:u.bank_account||"",blood_group:u.blood_group||"",hr_notes:u.hr_notes||""});setShow(true)};
 
   const doSave=()=>{
@@ -606,6 +633,7 @@ function StaffPage({data,setData,toast}){
           <div style={{flex:1}}><div className="ct">Staff Directory</div><div className="cs">{list.length} members</div></div>
           <div className="srch" style={{maxWidth:220}}><I n="user" s={13}/><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
           <button className="bg" onClick={openAdd}><I n="plus" s={15}/>Add Staff</button>
+          <button className="bs" onClick={()=>setShowBulk(true)}><I n="users" s={15}/>📋 Bulk Import</button>
           <button className="bs" onClick={addTeam}><I n="users" s={15}/>New Team</button>
         </div>
         <div className="cb" style={{padding:0}}>
@@ -657,6 +685,18 @@ function StaffPage({data,setData,toast}){
         </div>
       </div>
 
+      {showBulk&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShowBulk(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">📋 Bulk Import Staff</div><div className="mc" onClick={()=>setShowBulk(false)}>×</div></div>
+            <div className="mb">
+              <div className="info info-blue" style={{marginBottom:12}}><I n="alert" s={14}/><div>Paste one per line: <strong>Name then Phone</strong>. All added as BA, PIN <strong>1234</strong>, rate 0 — edit each later to fix. Duplicates (same phone) are skipped.</div></div>
+              <textarea className="fi" value={bulkText} onChange={e=>setBulkText(e.target.value)} rows={10} style={{minHeight:200,fontFamily:"monospace",fontSize:12,lineHeight:1.6}} placeholder={"Iqra Kamra BA +923180989404\nKomal Haripur BA +923140920914\n..."}/>
+              <div className="ma"><button className="bs" onClick={()=>setShowBulk(false)}>Cancel</button><button className="bg" onClick={doBulkImport}><I n="ok" s={15}/>Import All</button></div>
+            </div>
+          </div>
+        </div>
+      )}
       {show&&(
         <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
           <div className="md">
