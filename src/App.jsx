@@ -362,6 +362,17 @@ function AdminDash({data,toast,setPage}){
     return hrs>12;
   });
   const highRemarks=(data.activities||[]).filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
+  // Staff who clocked in today but submitted NO activity report
+  const noReportStaff=(data.allocations||[]).filter(function(a){
+    if(!a.active)return false;
+    var att=(data.attendance||[]).find(function(x){return x.user_id===a.user_id&&x.date===todayDate;});
+    if(!att)return false;
+    var dutyH=parseInt((a.duty_start||"09:00").split(":")[0],10);
+    var nowH=new Date().getHours();
+    if(nowH<dutyH+6)return false;
+    var hasReport=(data.activities||[]).find(function(act){return act.user_id===a.user_id&&act.date===todayDate;});
+    return !hasReport;
+  });
   const staff=(data.users||[]).filter(u=>u.role!=="admin");
   const today=new Date().toISOString().slice(0,10);
   const todayAtt=(data.attendance||[]).filter(a=>a.date===today);
@@ -437,6 +448,39 @@ function AdminDash({data,toast,setPage}){
         <div className="sc gr" onClick={()=>setPage&&setPage("alloc")} style={{cursor:"pointer"}}><div className="si gr"><I n="alloc" s={18}/></div><div className="sv">{activeAlloc.length}</div><div className="sl">Allocations</div></div>
         <div className="sc rd" onClick={()=>setPage&&setPage("attend")} style={{cursor:"pointer"}}><div className="si rd"><I n="clock" s={18}/></div><div className="sv">{todayAtt.length}</div><div className="sl">Checked In Today</div></div>
       </div>
+
+      {noReportStaff.length>0&&(
+        <div className="card" style={{marginBottom:18,border:"1px solid rgba(240,165,0,.4)"}}>
+          <div className="ch" style={{borderBottom:"1px solid rgba(240,165,0,.25)"}}>
+            <span style={{fontSize:20}}>📋</span>
+            <div style={{flex:1}}><div className="ct" style={{color:"var(--or)"}}>Report Not Submitted</div><div className="cs">{noReportStaff.length} staff clocked in but no activity report</div></div>
+          </div>
+          <div className="cb">
+            {noReportStaff.map(function(a){
+              var u=(data.users||[]).find(function(x){return x.id===a.user_id;});
+              var s=(data.stalls||[]).find(function(x){return x.id===a.stall_id;});
+              if(!u||!s)return null;
+              return(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid rgba(201,168,76,.06)"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600}}>{u.name}</div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{s.name} · {s.city} · Duty: {a.duty_start}</div>
+                  </div>
+                  <button className="bw" style={{fontSize:12,padding:"6px 12px"}} onClick={function(){
+                    var msg="📋 *SHINKORE MARKETING*\n\n"+
+                      "Assalam o Alaikum *"+u.name+"*!\n\n"+
+                      "Aap ne aaj "+s.name+", "+s.city+" par duty ki lekin abhi tak apni activity report submit nahi ki.\n\n"+
+                      "Bara-e-meharbani app mein apni aaj ki report foran submit karein.\n\n"+
+                      "App: https://shinkore-marketing14.pages.dev\n— Khalid Orakzai";
+                    sendWA(u.phone,msg);
+                    if(ADMIN_PHONES&&ADMIN_PHONES.length){sendWA(ADMIN_PHONES[0],"⚠️ Reminder sent to "+u.name+" — report not submitted for "+s.name+", "+s.city+".");}
+                  }}><I n="wa" s={13}/>Remind</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {alertPopup&&(
         <div onClick={function(e){if(e.target===e.currentTarget)setAlertPopup(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
