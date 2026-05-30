@@ -413,11 +413,11 @@ function AdminDash({data,toast,setPage}){
         <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
           <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:58,height:58,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",flexShrink:0,boxShadow:"0 4px 16px rgba(201,168,76,.25)"}}/>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontFamily:"Rajdhani",fontSize:20,fontWeight:700,color:"var(--g)",letterSpacing:.5,lineHeight:1}}>SHINKORE MARKETING</div>
-            <div style={{fontSize:11,color:"var(--txd)",letterSpacing:2,textTransform:"uppercase",marginTop:3}}>Marketing Operations Platform</div>
-            <div style={{fontSize:11,color:"var(--txd)",marginTop:5,display:"flex",gap:14,flexWrap:"wrap"}}>
-              <span>CEO: Khalid Orakzai</span>
-              <span>Civil Officer Col Office 28, Abbottabad</span>
+            <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)",letterSpacing:.5,lineHeight:1,whiteSpace:"nowrap"}}>SHINKORE MARKETING</div>
+            <div style={{fontSize:10,color:"var(--txd)",letterSpacing:1.5,textTransform:"uppercase",marginTop:2,whiteSpace:"nowrap"}}>Marketing Operations</div>
+            <div style={{fontSize:10,color:"var(--txd)",marginTop:4,display:"flex",flexDirection:"column",gap:2}}>
+              <span>👤 CEO: Khalid Orakzai</span>
+              <span>📍 Civil Officer Col Office 28, Abbottabad</span>
             </div>
           </div>
           <div style={{textAlign:"right",flexShrink:0}}>
