@@ -1324,7 +1324,8 @@ function ClockPage({user,data,setData,toast}){
               <span className={`b ${att?"b-active":"b-pending"}`}>{att?att.clock_out?"Done":"On Duty":"Not In"}</span>
             </div>
             <div className="cb">
-              <div style={{fontSize:12,color:"var(--txd)",marginBottom:12}}>GPS Target: {Number(stall.lat).toFixed(5)}, {Number(stall.lng).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
+              <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>GPS Target: {Number(stall.lat).toFixed(5)}, {Number(stall.lng).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
+              <a href={"https://maps.google.com/?q="+stall.lat+","+stall.lng} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(58,155,213,.12)",border:"1px solid rgba(58,155,213,.3)",borderRadius:8,padding:"7px 14px",fontSize:13,color:"var(--bl)",fontWeight:600,textDecoration:"none",marginBottom:12}}>📍 View Store on Map</a>
               {!att?(
                 <button className="bgps" onClick={()=>doClockIn(alloc)}>
                   <div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:700,color:"var(--gr)"}}>CLOCK IN</div><div style={{fontSize:12,color:"var(--txd)"}}>GPS will be verified</div></div>
