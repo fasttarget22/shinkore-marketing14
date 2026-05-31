@@ -254,7 +254,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"documents",icon:"pdf",label:"Document History"},
-    {id:"settings",icon:"set",label:"Settings / CallMeBot"},
+    {id:"settings",icon:"set",label:"Settings"},
     {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
   const isAllocated=(data.allocations||[]).some(function(a){return a.user_id===user.id&&a.active;});
@@ -748,8 +748,7 @@ function StaffPage({data,setData,toast}){
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:12}}>
-                  <div className={`gps-dot ${u.callmebot_key?"":"red"}`} style={{width:7,height:7}}/>
-                  <span style={{fontSize:11,color:u.callmebot_key?"var(--gr)":"var(--rd)"}}>{u.callmebot_key?"Auto-alert ✓":"No CallMeBot key"}</span>
+
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,background:"var(--d3)",borderRadius:8,padding:"6px 10px"}}>
                   <span style={{fontSize:11,color:"var(--txd)"}}>🔑 Login PIN:</span>
@@ -824,10 +823,7 @@ function StaffPage({data,setData,toast}){
                 </select>
                 <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>This BA will appear under the selected supervisor.</div>
               </div>}
-              <div className="fg"><label className="fl">CallMeBot API Key (for auto-alerts)</label>
-                <input className="fi" value={f.callmebot_key} onChange={e=>set("callmebot_key",e.target.value)} placeholder="e.g. 1234567"/>
-                <div style={{fontSize:11,color:"var(--txd)",marginTop:5}}>Staff sends "I allow callmebot to send me messages" to +34 644 59 72 97 on WhatsApp → gets key back</div>
-              </div>
+
               <div style={{borderTop:"1px solid var(--bo)",margin:"14px 0 10px",paddingTop:12}}>
                 <div style={{fontFamily:"Rajdhani",fontSize:15,fontWeight:700,color:"var(--g)",marginBottom:10}}>📋 Employee Profile (HR)</div>
                 <div className="frow">
@@ -1601,19 +1597,6 @@ function SettingsPage({data,setData,toast}){
   };
   return(
     <div>
-      <div className="card">
-        <div className="ch"><I n="key" s={17} c="var(--g)"/><div><div className="ct">CallMeBot Auto-Alert Setup</div><div className="cs">One-time setup for automatic WhatsApp</div></div></div>
-        <div className="cb">
-          <div className="info info-blue" style={{marginBottom:16}}><I n="wa" s={14}/>
-            <div>Each person sends this message to <strong>+34 644 59 72 97</strong> on WhatsApp once:<br/><strong style={{color:"var(--g)"}}>I allow callmebot to send me messages</strong><br/>They receive an API key — enter it in each staff profile.</div>
-          </div>
-          <div className="frow">
-            <div className="fg"><label className="fl">Khalid Phone 1 CallMeBot Key</label><input className="fi" value={cmb.admin1} onChange={e=>setCmb(p=>({...p,admin1:e.target.value}))} placeholder="API key for 00923135443656"/></div>
-            <div className="fg"><label className="fl">Khalid Phone 2 CallMeBot Key</label><input className="fi" value={cmb.admin2} onChange={e=>setCmb(p=>({...p,admin2:e.target.value}))} placeholder="API key for 00923174886655"/></div>
-          </div>
-          <button className="bg" onClick={doSave}><I n="ok" s={15}/>Save Keys</button>
-        </div>
-      </div>
       <div className="card">
         <div className="ch"><I n="set" s={17} c="var(--g)"/><div className="ct">System Info</div></div>
         <div className="cb">
