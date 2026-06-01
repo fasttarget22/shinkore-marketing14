@@ -19,11 +19,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "",
+        "matcher": "Edit",
         "hooks": [
           {
             "type": "command",
-            "command": ""
+            "command": "npm run build"
           }
         ]
       }
