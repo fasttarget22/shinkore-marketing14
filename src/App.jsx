@@ -4321,7 +4321,12 @@ function SyncPage({data,setData,toast}){
   const saveUrl=async()=>{
     const d={...data,sheets_url:url};
     setData(d);save(d);
-    try{await SB.from("sm_settings").upsert({id:"sheets_url",value:url},{onConflict:"id"});}catch(e){}
+    console.log("[SheetsSync] Saving URL to sm_settings:", url);
+    try{
+      const {data:sbData,error:sbErr}=await SB.from("sm_settings").upsert({id:"sheets_url",value:url},{onConflict:"id"});
+      if(sbErr){console.error("[SheetsSync] sm_settings upsert failed:", sbErr);}
+      else{console.log("[SheetsSync] sm_settings upsert OK:", sbData);}
+    }catch(e){console.error("[SheetsSync] sm_settings upsert exception:", e);}
     toast("Sheets URL saved!");
   };
 
@@ -4627,7 +4632,13 @@ export default function App(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
       var sheetsUrlRow=null;
-      try{var sr=await SB.from("sm_settings").select("*").eq("id","sheets_url").single();sheetsUrlRow=sr.data;}catch(e){}
+      try{
+        var sr=await SB.from("sm_settings").select("*").eq("id","sheets_url").single();
+        if(sr.error&&sr.error.code!=="PGRST116"){console.error("[Pull] sm_settings read failed:",sr.error);}
+        sheetsUrlRow=sr.data;
+        if(sheetsUrlRow){console.log("[Pull] Loaded sheets_url from Supabase:",sheetsUrlRow.value);}
+        else{console.log("[Pull] No sheets_url row found in sm_settings (first use or not saved yet)");}
+      }catch(e){console.error("[Pull] sm_settings exception:",e);}
       setData(function(prev){
         var merged={...prev};
         Object.keys(mapTbl).forEach(function(tbl){
