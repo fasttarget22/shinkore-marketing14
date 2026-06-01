@@ -86,6 +86,9 @@ const initData = () => {
 const save = (d) => {
   localStorage.setItem("shinkore_v2", JSON.stringify(d));
   if(syncStatusCb) syncStatusCb("syncing");
+  SB.from("sm_settings").upsert({id:"sheets_url",value:d.sheets_url||""},{onConflict:"id"})
+    .then(({error})=>{if(error)console.error("[save] sm_settings upsert failed:",error);})
+    .catch(e=>console.error("[save] sm_settings exception:",e));
   Promise.all([
     pushToSB("sm_users", d.users||[]),
     pushToSB("sm_stalls", d.stalls||[]),
@@ -4318,15 +4321,11 @@ function SyncPage({data,setData,toast}){
 
   const addLog=(msg,ok=true)=>setLog(p=>[{msg,ok,t:new Date().toLocaleTimeString("en-PK")},...p.slice(0,19)]);
 
-  const saveUrl=async()=>{
+  useEffect(()=>{if(data.sheets_url!==undefined)setUrl(data.sheets_url||"");},[data.sheets_url]);
+
+  const saveUrl=()=>{
     const d={...data,sheets_url:url};
     setData(d);save(d);
-    console.log("[SheetsSync] Saving URL to sm_settings:", url);
-    try{
-      const {data:sbData,error:sbErr}=await SB.from("sm_settings").upsert({id:"sheets_url",value:url},{onConflict:"id"});
-      if(sbErr){console.error("[SheetsSync] sm_settings upsert failed:", sbErr);}
-      else{console.log("[SheetsSync] sm_settings upsert OK:", sbData);}
-    }catch(e){console.error("[SheetsSync] sm_settings upsert exception:", e);}
     toast("Sheets URL saved!");
   };
 
