@@ -4314,9 +4314,11 @@ function SyncPage({data,setData,toast}){
 
   const addLog=(msg,ok=true)=>setLog(p=>[{msg,ok,t:new Date().toLocaleTimeString("en-PK")},...p.slice(0,19)]);
 
-  const saveUrl=()=>{
+  const saveUrl=async()=>{
     const d={...data,sheets_url:url};
-    setData(d);save(d);toast("Sheets URL saved!");
+    setData(d);save(d);
+    try{await SB.from("sm_settings").upsert({id:"sheets_url",value:url},{onConflict:"id"});}catch(e){}
+    toast("Sheets URL saved!");
   };
 
   const exportCSV=(sheet,rows,headers)=>{const nl=String.fromCharCode(10);const h=headers.join(",")+nl;const r=rows.map(row=>row.map(x=>String(x||"")).join(",")).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");
@@ -4620,6 +4622,8 @@ export default function App(){
     var pull=async function(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
+      var sheetsUrlRow=null;
+      try{var sr=await SB.from("sm_settings").select("*").eq("id","sheets_url").single();sheetsUrlRow=sr.data;}catch(e){}
       setData(function(prev){
         var merged={...prev};
         Object.keys(mapTbl).forEach(function(tbl){
@@ -4640,6 +4644,7 @@ export default function App(){
             merged.allocations=cleaned;
           }
         }
+        if(sheetsUrlRow&&sheetsUrlRow.value){merged.sheets_url=sheetsUrlRow.value;}
         localStorage.setItem("shinkore_v2",JSON.stringify(merged));
         return merged;
       });
