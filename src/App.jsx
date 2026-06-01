@@ -71,14 +71,10 @@ const initData = () => {
     remarks: [],
     targets: [],
     activities: [],
-    remarks: [],
-    stock_items: [],
     clients: [{id:"c1",name:"Shahadat",brand:"Brite",phone:"03001234999",email:"",pin:"1234",active:true}],
     daily_plans: [],
     trainings: [],
     training_done: [],
-    targets: [],
-    activity_photos: [],
     callmebot: { admin1:"", admin2:"" },
     sheets_url: "", csv_exported: false,
   };
@@ -86,6 +82,9 @@ const initData = () => {
 const save = (d) => {
   localStorage.setItem("shinkore_v2", JSON.stringify(d));
   if(syncStatusCb) syncStatusCb("syncing");
+  SB.from("sm_settings").upsert({id:"sheets_url",value:d.sheets_url||""},{onConflict:"id"})
+    .then(({error})=>{if(error)console.error("[save] sm_settings upsert failed:",error);})
+    .catch(e=>console.error("[save] sm_settings exception:",e));
   Promise.all([
     pushToSB("sm_users", d.users||[]),
     pushToSB("sm_stalls", d.stalls||[]),
@@ -1083,7 +1082,7 @@ function AllocPage({data,setData,toast}){
   const nonAdmin=(data.users||[]).filter(u=>u.role!=="admin");
 
   const openAdd=()=>{
-    setF({stall_id:data.stalls[0]?.id||"",user_id:nonAdmin[0]?.id||"",duty_start:"09:00",daily_rate:"",from_date:new Date().toISOString().slice(0,10),to_date:""});
+    setF({stall_id:data.stalls[0]?.id||"",user_id:nonAdmin[0]?.id||"",duty_start:"09:00",daily_rate:"",from_date:new Date().toISOString().slice(0,10),to_date:"",paid_by:"admin"});
     setShow(true);
   };
 
@@ -2311,6 +2310,7 @@ const generateBillHTML = (stall, payments, today) => {
 
 const openPrint = (html) => {
   const w = window.open("","_blank","width=750,height=900");
+  if(!w){alert("Please allow popups in your browser to view the PDF slip.");return;}
   w.document.write(html);
   w.document.close();
   w.focus();
@@ -2554,7 +2554,7 @@ function SalaryPage({data,setData,toast}){
 
 // ─── MY SALARY (STAFF) ────────────────────────────────────────────────────────
 function MySalaryPage({user,data}){
-  const myRecords=data.salary.filter(s=>s.user_id===user.id);
+  const myRecords=(data.salary||[]).filter(s=>s.user_id===user.id);
   const totalEarned=myRecords.filter(s=>s.status==="paid").reduce((s,r)=>s+Number(r.total),0);
   const totalPending=myRecords.filter(s=>s.status==="pending").reduce((s,r)=>s+Number(r.total),0);
   return(
@@ -4318,10 +4318,11 @@ function SyncPage({data,setData,toast}){
 
   const addLog=(msg,ok=true)=>setLog(p=>[{msg,ok,t:new Date().toLocaleTimeString("en-PK")},...p.slice(0,19)]);
 
-  const saveUrl=async()=>{
+  useEffect(()=>{if(data.sheets_url!==undefined)setUrl(data.sheets_url||"");},[data.sheets_url]);
+
+  const saveUrl=()=>{
     const d={...data,sheets_url:url};
     setData(d);save(d);
-    try{await SB.from("sm_settings").upsert({id:"sheets_url",value:url},{onConflict:"id"});}catch(e){}
     toast("Sheets URL saved!");
   };
 
@@ -4331,7 +4332,7 @@ function SyncPage({data,setData,toast}){
 const syncSheet=async(sheet,rows)=>{
     if(!url) return addLog("No Apps Script URL set.",false);
     try{
-      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
+      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({sheet,rows})});
       addLog("Synced: "+sheet+" ("+rows.length+" rows)");
     }catch(e){addLog("Failed: "+sheet,false);}
@@ -4627,7 +4628,13 @@ export default function App(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
       var sheetsUrlRow=null;
-      try{var sr=await SB.from("sm_settings").select("*").eq("id","sheets_url").single();sheetsUrlRow=sr.data;}catch(e){}
+      try{
+        var sr=await SB.from("sm_settings").select("*").eq("id","sheets_url").single();
+        if(sr.error&&sr.error.code!=="PGRST116"){console.error("[Pull] sm_settings read failed:",sr.error);}
+        sheetsUrlRow=sr.data;
+        if(sheetsUrlRow){console.log("[Pull] Loaded sheets_url from Supabase:",sheetsUrlRow.value);}
+        else{console.log("[Pull] No sheets_url row found in sm_settings (first use or not saved yet)");}
+      }catch(e){console.error("[Pull] sm_settings exception:",e);}
       setData(function(prev){
         var merged={...prev};
         Object.keys(mapTbl).forEach(function(tbl){
@@ -4667,6 +4674,7 @@ export default function App(){
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
   const isAdmin=user.role==="admin";
+  const isAllocated=(data.allocations||[]).some(a=>a.user_id===user.id&&a.active);
 
   const render=()=>{
     if(isAdmin){
@@ -4707,6 +4715,7 @@ export default function App(){
         case "pitch": return <PitchPage user={user} data={data} toast={toast}/>;
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
+        case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
       }
     }
