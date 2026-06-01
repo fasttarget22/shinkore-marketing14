@@ -1968,9 +1968,9 @@ function CashPage({data,setData,toast}){
           <div className="cb" style={{padding:0}}>
             <div className="tw">
               <table>
-                <thead><tr><th>Activity</th><th>Stall</th><th>Amount</th><th>Date</th><th>Status</th><th>Notes</th></tr></thead>
+                <thead><tr><th>Activity</th><th>Stall</th><th>Amount</th><th>Date</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
                 <tbody>
-                  {(data.client_payments||[]).length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No client payments recorded yet.</td></tr>}
+                  {(data.client_payments||[]).length===0&&<tr><td colSpan={7} style={{textAlign:"center",color:"var(--txd)",padding:30}}>No client payments recorded yet.</td></tr>}
                   {(data.client_payments||[]).map(p=>(
                     <tr key={p.id}>
                       <td style={{fontWeight:600}}>{p.activity}</td>
@@ -1979,6 +1979,10 @@ function CashPage({data,setData,toast}){
                       <td style={{color:"var(--txd)",fontSize:12}}>{p.date}</td>
                       <td><span className={p.status==="received"?"b b-active":"b b-pending"}>{p.status}</span></td>
                       <td style={{color:"var(--txd)",fontSize:12}}>{p.notes||"—"}</td>
+                      <td style={{display:"flex",gap:6}}>
+                        {p.status!=="received"&&<button onClick={()=>{var d={...data,client_payments:data.client_payments.map(x=>x.id===p.id?{...x,status:"received"}:x)};setData(d);save(d);toast("Marked as received!");}} style={{background:"var(--gr)",color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✓ Received</button>}
+                        <button onClick={()=>{if(!confirm("Delete this payment?"))return;var d={...data,client_payments:data.client_payments.filter(x=>x.id!==p.id)};setData(d);save(d);deleteFromSB("sm_client_payments",p.id);toast("Payment deleted.");}} style={{background:"#e53",color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>🗑 Delete</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
