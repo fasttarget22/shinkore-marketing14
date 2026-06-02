@@ -248,7 +248,6 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"documents",icon:"pdf",label:"Document History"},
     {id:"settings",icon:"set",label:"Settings"},
-    {id:"ai",icon:"set",label:"🤖 Ask AI"},
   ];
   const isAllocated=(data.allocations||[]).some(function(a){return a.user_id===user.id&&a.active;});
   const isSupervisor=user.role==="supervisor";
@@ -261,7 +260,6 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"alerts",icon:"alert",label:"Late Alerts"},
     {id:"training",icon:"users",label:"Training"},
-    {id:"pitch",icon:"users",label:"📣 Pitch Script"},
   ]:[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
@@ -270,7 +268,6 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"training",icon:"users",label:"Training"},
-    {id:"pitch",icon:"users",label:"📣 Pitch Script"},
   ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
@@ -341,11 +338,7 @@ function AdminDash({data,toast,setPage}){
           var s=(data.stalls||[]).find(x=>x.id===a.stall_id);
           return (u?u.name:"?")+"/"+(u?u.role:"")+" at "+(s?s.name:"?")+","+(s?s.city:"")+" duty:"+a.duty_start;
         }).join("; ");
-        try{
-          const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
-          const json=await res.json();
-          setAlertPopup({absent,details,msg:json.choices&&json.choices[0]?json.choices[0].message.content:absent.length+" staff not checked in!"});
-        }catch(e){setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});}
+        setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});
       }
     };
     check();
@@ -381,40 +374,6 @@ function AdminDash({data,toast,setPage}){
   const totalInterceptions=monthActs.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
   const totalSales=monthActs.reduce((s,a)=>s+Number(a.total_pcs||0),0);
   const notCheckedIn=activeAlloc.filter(a=>!todayAtt.find(x=>x.user_id===a.user_id)).length;
-
-  const [aiBrief,setAiBrief]=useState("");
-  const [aiLoading,setAiLoading]=useState(false);
-  const [briefLang,setBriefLang]=useState("english");
-
-  const generateBriefing=async()=>{
-    setAiLoading(true);
-    setAiBrief("");
-    try{
-      const staffNames=staff.map(u=>u.name+"("+u.role+")").join(", ");
-      const stallNames=(data.stalls||[]).map(s=>s.name+","+s.city).join("; ");
-      const prompt="You are a field marketing operations AI for Shinkore Marketing, Abbottabad Pakistan. Generate a professional morning briefing for the admin (Khalid Orakzai, CEO) based on this data:\n"+
-        "Date: "+today+"\n"+
-        "Total Staff: "+staff.length+" ("+staffNames+")\n"+
-        "Active Stalls: "+(data.stalls||[]).length+" ("+stallNames+")\n"+
-        "Checked In Today: "+todayAtt.length+" of "+activeAlloc.length+" allocated staff\n"+
-        "Not Checked In: "+notCheckedIn+" staff\n"+
-        "Today's Activities: "+todayActs.length+"\n"+
-        "Pending Approvals: "+pendingApprovals+"\n"+
-        "High Priority Remarks: "+highRemarks+"\n"+
-        "This Month Activities: "+monthActs.length+"\n"+
-        "This Month Interceptions: "+totalInterceptions+"\n"+
-        "This Month Sales (pcs): "+totalSales+"\n"+
-        "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional."+(briefLang==="urdu"?" Respond ONLY in proper Urdu language using Nastaliq Urdu script. Do NOT use any English words at all — translate everything including technical terms like Briefing, Pending, Approvals, Activities into Urdu. Write 100% in اردو script only.":"");
-      const res=await fetch("/api/ai",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
-      });
-      const json=await res.json();
-      setAiBrief(json.choices?.[0]?.message?.content||"Could not generate briefing.");
-    }catch(e){setAiBrief("Error generating briefing. Check connection.");}
-    setAiLoading(false);
-  };
 
   return(
     <div>
@@ -490,7 +449,6 @@ function AdminDash({data,toast,setPage}){
               <div style={{fontSize:11,color:"var(--txd)"}}>{alertPopup.absent.length} staff not checked in</div></div>
             </div>
             <div style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,lineHeight:1.6}}>
-              <div style={{fontSize:10,color:"var(--rd)",fontWeight:700,marginBottom:4}}>🤖 AI ALERT</div>
               {alertPopup.msg}
             </div>
             {alertPopup.absent.map(function(a){
@@ -526,26 +484,6 @@ function AdminDash({data,toast,setPage}){
         </div>
         <button onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");sendWA(ADMIN_PHONES[0],"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);}} style={{background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"5px 10px",cursor:"pointer",color:"#25d366",fontSize:11,whiteSpace:"nowrap"}}>📤 Remind</button>
       </div>}
-      <div className="card" style={{marginBottom:16,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)"}}>
-        <div className="ch">
-          <div style={{fontSize:22}}>🤖</div>
-          <div style={{flex:1}}><div className="ct" style={{color:"#a78bfa"}}>AI Daily Briefing</div><div className="cs">Powered by Claude AI</div></div>
-          <div style={{display:"flex",gap:4,marginRight:4}}>
-            <button onClick={()=>setBriefLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:briefLang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
-            <button onClick={()=>setBriefLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:briefLang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
-          </div>
-          <button onClick={generateBriefing} disabled={aiLoading} style={{background:"linear-gradient(135deg,rgba(139,92,246,.3),rgba(59,130,246,.3))",border:"1px solid rgba(139,92,246,.5)",borderRadius:8,padding:"6px 14px",cursor:"pointer",color:"#a78bfa",fontSize:12,fontWeight:600}}>{aiLoading?"⏳ Generating...":"✨ Generate"}</button>
-        </div>
-        {aiBrief&&<div className="cb">
-          <div style={{fontSize:13,color:"var(--tx)",lineHeight:1.7,marginBottom:10}}>{aiBrief}</div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>{navigator.clipboard.writeText(aiBrief);toast("Copied!");}} style={{fontSize:11,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
-            <button onClick={()=>sendWA(ADMIN_PHONES[0],"🤖 AI Daily Briefing\n\n"+aiBrief+"\n\n— Shinkore Marketing AI")} style={{fontSize:11,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
-            <button onClick={()=>setAiBrief("")} style={{fontSize:11,background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"var(--rd)"}}>✕</button>
-          </div>
-        </div>}
-        {!aiBrief&&!aiLoading&&<div className="cb" style={{color:"var(--txd)",fontSize:12,textAlign:"center",padding:"8px 0"}}>Tap Generate for your AI morning briefing</div>}
-      </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div className="card">
           <div className="ch" onClick={()=>setPage&&setPage("alloc")} style={{cursor:"pointer"}}><I n="alloc" s={17} c="var(--g)"/><div><div className="ct">Today's Allocations ↗</div><div className="cs">Who is where today</div></div></div>
@@ -603,52 +541,6 @@ function StaffPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
   const [search,setSearch]=useState("");
-  const [aiPerf,setAiPerf]=useState({});
-  const [aiPerfLoading,setAiPerfLoading]=useState({});
-
-  const generatePerformance=async(u)=>{
-    setAiPerfLoading(p=>({...p,[u.id]:true}));
-    setAiPerf(p=>({...p,[u.id]:""}));
-    try{
-      const today=new Date().toISOString().slice(0,10);
-      const thisMonth=today.slice(0,7);
-      const myAtt=(data.attendance||[]).filter(a=>a.user_id===u.id);
-      const monthAtt=new Set(myAtt.filter(a=>a.date.startsWith(thisMonth)).map(a=>a.date)).size;
-      const totalDays=new Set(myAtt.map(a=>a.date)).size;
-      const myActs=(data.activities||[]).filter(a=>a.ba_id===u.id||a.supervisor_id===u.id);
-      const monthActs=myActs.filter(a=>a.date&&a.date.startsWith(thisMonth));
-      const totalInter=monthActs.reduce((s,a)=>s+Number(a.total_interceptions||0),0);
-      const totalPcs=monthActs.reduce((s,a)=>s+Number(a.total_pcs||0),0);
-      const totalKg=monthActs.reduce((s,a)=>s+Number(a.total_kg||0),0);
-      const highRemarks=myActs.filter(a=>a.ba_remark_cat==="high"||a.sup_remark_cat==="high").length;
-      const approved=myActs.filter(a=>a.approval_status==="approved").length;
-      const alloc=data.allocations.filter(a=>a.user_id===u.id&&a.active);
-      const stallNames=alloc.map(a=>{const s=(data.stalls||[]).find(x=>x.id===a.stall_id);return s?s.name+","+s.city:"";}).join("; ");
-      const prompt="You are a field marketing HR analyst for Shinkore Marketing, Abbottabad Pakistan. Generate a professional performance review for this staff member:\n"+
-        "Name: "+u.name+"\n"+
-        "Role: "+u.role+"\n"+
-        "Daily Rate: PKR "+u.daily_rate+"\n"+
-        "Team: "+(u.team||"Unassigned")+"\n"+
-        "Total Days Worked: "+totalDays+"\n"+
-        "This Month Attendance: "+monthAtt+" days\n"+
-        "Assigned Stalls: "+(stallNames||"None")+"\n"+
-        "This Month Activities: "+monthActs.length+"\n"+
-        "This Month Interceptions: "+totalInter+"\n"+
-        "This Month Sales PCs: "+totalPcs+"\n"+
-        "This Month Sales KG: "+totalKg+"\n"+
-        "High Priority Remarks: "+highRemarks+"\n"+
-        "Approved Activities: "+approved+"\n"+
-        "Write a 3-4 sentence performance review. Rate as Excellent/Good/Average/Poor. Give one specific recommendation. Be professional and constructive.";
-      const res=await fetch("/api/ai",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
-      });
-      const json=await res.json();
-      setAiPerf(p=>({...p,[u.id]:json.choices?.[0]?.message?.content||"Could not generate review."}));
-    }catch(e){setAiPerf(p=>({...p,[u.id]:"Error. Check connection."}));}
-    setAiPerfLoading(p=>({...p,[u.id]:false}));
-  };
   const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:"",paid_by:"admin",sup_id:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
@@ -753,15 +645,6 @@ function StaffPage({data,setData,toast}){
                   <button className="bw" onClick={()=>sendWA(u.phone,`Assalam o Alaikum ${u.name}!`)}><I n="wa" s={13}/>WA</button>
                   <button className="brd" onClick={()=>doDel(u)} style={{marginLeft:"auto"}}><I n="del" s={13}/>Remove</button>
                 </div>
-                <button onClick={()=>generatePerformance(u)} disabled={aiPerfLoading[u.id]} style={{width:"100%",marginTop:8,fontSize:12,background:"linear-gradient(135deg,rgba(139,92,246,.15),rgba(59,130,246,.15))",border:"1px solid rgba(139,92,246,.35)",borderRadius:8,padding:"6px",cursor:"pointer",color:"#a78bfa"}}>{aiPerfLoading[u.id]?"⏳ Analyzing...":"🤖 AI Performance Review"}</button>
-                {aiPerf[u.id]&&<div style={{marginTop:8,padding:"10px 12px",borderRadius:8,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.2)",fontSize:12,color:"var(--tx)",lineHeight:1.6}}>
-                  <div style={{fontSize:10,color:"#a78bfa",fontWeight:600,marginBottom:4}}>🤖 AI REVIEW</div>
-                  {aiPerf[u.id]}
-                  <div style={{display:"flex",gap:6,marginTop:6}}>
-                    <button onClick={()=>{navigator.clipboard.writeText(aiPerf[u.id]);toast("Copied!");}} style={{fontSize:10,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
-                    <button onClick={()=>sendWA(u.phone,"🤖 Your Performance Review\n\n"+aiPerf[u.id]+"\n\n— Shinkore Marketing")} style={{fontSize:10,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#25d366"}}>📤 Send to Staff</button>
-                  </div>
-                </div>}
               </div>
             ))}
           </div>
@@ -2793,49 +2676,6 @@ function ActivityPage({user,data,setData,toast}){
   const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
   const bas=(data.users||[]).filter(u=>u.role==="ba");
   const sups=(data.users||[]).filter(u=>u.role==="supervisor");
-  const [aiSummary,setAiSummary]=useState({});
-  const [aiLoading,setAiLoading]=useState({});
-  const generateAISummary=async(act)=>{
-    const ba=(data.users||[]).find(u=>u.id===act.ba_id);
-    const sup=(data.users||[]).find(u=>u.id===act.supervisor_id);
-    const hrs=calcHours(act.punch_in,act.punch_out,act.break_start,act.break_end);
-    setAiLoading(p=>({...p,[act.id]:true}));
-    try{
-      const prompt="Generate a professional 3-4 sentence activity summary for a field marketing report based on this data:\n"+
-        "Date: "+act.date+"\n"+
-        "BA: "+(ba?.name||"Unknown")+"\n"+
-        "Supervisor: "+(sup?.name||"Unknown")+"\n"+
-        "Store: "+act.store_name+", "+act.city+"\n"+
-        "Brand: "+act.brand+"\n"+
-        "Activity Type: "+act.type+"\n"+
-        "Location Type: "+act.location_type+"\n"+
-        "Working Hours: "+hrs+"\n"+
-        "Punch In: "+(act.punch_in||"—")+" | Punch Out: "+(act.punch_out||"—")+"\n"+
-        "Interceptions: "+(act.total_interceptions||0)+"\n"+
-        "Buyers: "+(act.total_productive||0)+"\n"+
-        "Sales KG: "+(act.total_kg||0)+"\n"+
-        "Sales PCs: "+(act.total_pcs||0)+"\n"+
-        "BA Remark: "+(act.ba_remark||"None")+" ("+act.ba_remark_cat+" priority)\n"+
-        "Approval Status: "+act.approval_status+"\n"+
-        "Write in professional English. Start with the date and BA name. Be concise and factual.";
-      const res=await fetch("/api/ai",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"llama-3.3-70b-versatile",
-          max_tokens:1000,
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      const json=await res.json();
-      const text=json.choices?.[0]?.message?.content||"Could not generate summary.";
-      setAiSummary(p=>({...p,[act.id]:text}));
-    }catch(e){
-      setAiSummary(p=>({...p,[act.id]:"Error generating summary. Try again."}));
-    }
-    setAiLoading(p=>({...p,[act.id]:false}));
-  };
-
   const doSave=(override)=>{
     if(!form.city||!form.store_name||!form.brand)return toast("City, store and brand required.");
     if(!form.ba_id)return toast("Select BA.");
@@ -3177,18 +3017,8 @@ function ActivityPage({user,data,setData,toast}){
               <button className="bs" onClick={()=>openEdit(act)} style={{fontSize:12}}><I n="edit" s={13}/>Edit</button>
               <button className="bs" onClick={()=>printActivity(act)} style={{fontSize:12}}><I n="pdf" s={13}/>PDF</button>
               <button className="bw" onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===act.ba_id);sendWA(ADMIN_PHONES[0],"Activity: "+act.type+" | "+act.store_name+", "+act.city+"\nBA: "+(ba2?.name||"")+"\nDate: "+act.date);}} style={{fontSize:12}}><I n="wa" s={13}/>Share</button>
-              <button onClick={()=>generateAISummary(act)} disabled={aiLoading[act.id]} style={{fontSize:12,background:"linear-gradient(135deg,rgba(139,92,246,.2),rgba(59,130,246,.2))",border:"1px solid rgba(139,92,246,.4)",borderRadius:8,padding:"5px 12px",cursor:"pointer",color:"#a78bfa",display:"flex",alignItems:"center",gap:6}}>{aiLoading[act.id]?"⏳ Generating...":"✨ AI Summary"}</button>
               {isAdmin&&<button className="brd" onClick={()=>{if(!confirm("Delete?"))return;const d={...data,activities:data.activities.filter(a=>a.id!==act.id)};setData(d);save(d);toast("Deleted.");}} style={{marginLeft:"auto",fontSize:12}}><I n="del" s={13}/>Delete</button>}
             </div>
-            {aiSummary[act.id]&&<div style={{marginTop:10,padding:"12px 14px",borderRadius:10,background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)"}}>
-              <div style={{fontSize:11,color:"#a78bfa",fontWeight:600,marginBottom:6}}>✨ AI SUMMARY</div>
-              <div style={{fontSize:13,color:"var(--tx)",lineHeight:1.6}}>{aiSummary[act.id]}</div>
-              <div style={{display:"flex",gap:8,marginTop:8}}>
-                <button onClick={()=>{navigator.clipboard.writeText(aiSummary[act.id]);toast("Copied!");}} style={{fontSize:11,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
-                <button onClick={()=>{const ba2=(data.users||[]).find(u=>u.id===act.ba_id);const phone=ba2?.phone||ADMIN_PHONES[0];sendWA(phone,"✨ AI Activity Summary\n\n"+aiSummary[act.id]+"\n\n— Shinkore Marketing");}} style={{fontSize:11,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
-                <button onClick={()=>setAiSummary(p=>({...p,[act.id]:null}))} style={{fontSize:11,background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,padding:"3px 10px",cursor:"pointer",color:"var(--rd)"}}>✕ Close</button>
-              </div>
-            </div>}
           </div>
         );
       })}
@@ -3394,27 +3224,6 @@ function ClientPDFPage({user,data,toast}){
   const [clientId,setClientId]=useState("");
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [preview,setPreview]=useState(false);
-  const [aiSummary,setAiSummary]=useState("");
-  const [aiLoading,setAiLoading]=useState(false);
-  const [aiLang,setAiLang]=useState("english");
-  const generateAISummary=async()=>{
-    if(!client){toast("Select a client first.");return;}
-    if(acts.length===0){toast("No approved activities for this period.");return;}
-    setAiLoading(true);setAiSummary("");
-    try{
-      var prompt="You are a marketing operations analyst for Shinkore Marketing, Abbottabad Pakistan. Write a professional executive summary paragraph (4-6 sentences) for a client activity report. Data:\n"+
-        "Client: "+client.name+"\nBrand: "+client.brand+"\nPeriod: "+month+"\n"+
-        "Total Activities: "+acts.length+"\nTotal Interceptions: "+totalInterceptions+"\nProductive Buyers: "+totalBuyers+"\nSales KG: "+totalKg+"\nSales PCs: "+totalPcs+"\n"+
-        "Gifts given: "+totalGifts+"\nSamples given: "+totalSamples+"\nCities: "+(cities.join(", ")||"-")+"\nStores covered: "+stores.length+"\n"+
-        "Write a confident, client-facing summary highlighting reach, engagement and sales outcomes, plus one forward-looking recommendation. Be specific with the numbers."+
-        (aiLang==="urdu"?" Respond ONLY in proper Urdu Nastaliq script. Do not use English words; translate technical terms into Urdu.":"");
-      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
-      var json=await res.json();
-      setAiSummary(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not generate summary.");
-    }catch(e){setAiSummary("Error generating summary. Check connection.");}
-    setAiLoading(false);
-  };
-
   const client=(data.clients||[]).find(c=>c.id===clientId);
   const acts=(data.activities||[]).filter(a=>
     a.approval_status==="approved"&&
@@ -3480,7 +3289,6 @@ tr:nth-child(even) td{background:#fdfaf4}
   </div>
 </div>
 
-  ${aiSummary?'<div class="section"><div class="sec-title">Executive Summary</div><div style="font-size:13px;line-height:1.8;color:#333;padding:4px 2px">'+aiSummary.replace(/\n/g,"<br>")+'</div></div>':""}
 <div class="section">
   <div class="sec-title">Activity Details</div>
   <table>
@@ -3530,22 +3338,6 @@ ${acts.some(a=>(a.photos||[]).length>0)?'<div class="section"><div class="sec-ti
               <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales KG</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--gr)"}}>{totalKg}</div></div>
               <div><div style={{fontSize:10,color:"var(--txd)"}}>Sales PCs</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--or)"}}>{totalPcs}</div></div>
             </div>
-          </div>}
-          {client&&acts.length>0&&<div style={{background:"linear-gradient(135deg,rgba(139,92,246,.08),rgba(59,130,246,.08))",border:"1px solid rgba(139,92,246,.25)",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{fontSize:18}}>🤖</span>
-              <div style={{flex:1,fontSize:13,fontWeight:600,color:"#a78bfa"}}>AI Executive Summary</div>
-              <button onClick={()=>setAiLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:aiLang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
-              <button onClick={()=>setAiLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:aiLang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
-              <button onClick={generateAISummary} disabled={aiLoading} style={{fontSize:11,padding:"4px 10px",borderRadius:6,cursor:"pointer",background:"rgba(139,92,246,.3)",border:"1px solid rgba(139,92,246,.5)",color:"#a78bfa",fontWeight:600}}>{aiLoading?"⏳":"✨ Generate"}</button>
-            </div>
-            {aiSummary&&<div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{aiSummary}
-              <div style={{display:"flex",gap:6,marginTop:8}}>
-                <button onClick={()=>{navigator.clipboard.writeText(aiSummary);toast("Copied!");}} style={{fontSize:10,background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#a78bfa"}}>📋 Copy</button>
-                <button onClick={()=>{if(client.phone)sendWA(client.phone,aiSummary+"\n\n— Shinkore Marketing");else toast("No phone for client.");}} style={{fontSize:10,background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"#25d366"}}>📤 WhatsApp</button>
-              </div>
-            </div>}
-            {!aiSummary&&!aiLoading&&<div style={{fontSize:11,color:"var(--txd)"}}>Generate an AI summary to include at the top of the PDF report.</div>}
           </div>}
           <button className="bg" onClick={generatePDF} style={{width:"100%",justifyContent:"center"}}><I n="pdf" s={16}/>Generate Client PDF Report</button>
           {client&&acts.length>0&&<button className="bw" onClick={()=>{if(client.phone)sendWA(client.phone,"Dear "+client.name+", please find your brand "+client.brand+" activity report for "+month+" attached. Total: "+acts.length+" activities, "+totalInterceptions+" interceptions, "+totalKg+"kg sales. Contact us for the full report. — Shinkore Marketing 03135443656");else toast("No phone number for this client.");}} style={{width:"100%",justifyContent:"center",marginTop:8}}><I n="wa" s={16}/>Send Summary to Client via WhatsApp</button>}
@@ -3695,8 +3487,6 @@ function LettersPage({data,toast,setData,save}){
   const [recipient,setRecipient]=useState("The Branch Manager");
   const [subject,setSubject]=useState("");
   const [body,setBody]=useState("");
-  const [lang,setLang]=useState("english");
-  const [loading,setLoading]=useState(false);
   const staff=(data.users||[]).filter(u=>u.role!=="admin");
   const emp=staff.find(u=>u.id===empId);
   const type=LETTER_TYPES.find(t=>t.id===typeId);
@@ -3705,20 +3495,6 @@ function LettersPage({data,toast,setData,save}){
     setTypeId(id);
     var t=LETTER_TYPES.find(x=>x.id===id);
     if(t&&t.to)setRecipient(t.to);
-  };
-
-  const draftAI=async()=>{
-    setLoading(true);setBody("");
-    try{
-      var roleLabel=emp?(emp.role==="ba"?"Business Ambassador":"Supervisor"):"employee";
-      var details=emp?("Employee Name: "+emp.name+"\nDesignation: "+roleLabel+"\nCNIC: "+(emp.cnic||"N/A")+"\nPhone: "+emp.phone+"\nJoining Date: "+(emp.join_date||"N/A")+"\nMonthly basis daily rate: PKR "+(emp.daily_rate||"N/A")+"\nBank/Account: "+(emp.bank_account||"N/A")):"(no employee selected)";
-      var prompt="You are an HR officer at Shinkore Marketing, a field marketing company in Abbottabad, Pakistan, headed by CEO Khalid Orakzai. Write a formal, professional "+type.label+" addressed to: "+recipient+".\n\nEmployee details:\n"+details+"\n\nWrite only the BODY of the letter (no letterhead, no date, no signature block — those are added separately). Keep it concise, formal and ready to sign. "+(lang==="urdu"?"Write the letter body in proper Urdu Nastaliq script.":"Write in professional English.");
-      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,messages:[{role:"user",content:prompt}]})});
-      var json=await res.json();
-      setBody(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not draft. Try again.");
-      if(!subject)setSubject(type.label);
-    }catch(e){setBody("Error drafting letter. Check connection.");}
-    setLoading(false);
   };
 
   const generate=()=>{
@@ -3784,12 +3560,7 @@ function LettersPage({data,toast,setData,save}){
             <div className="fg"><label className="fl">Subject</label><input className="fi" value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Subject line"/></div>
           </div>
           <div className="fg"><label className="fl">Letter Body</label>
-            <div style={{display:"flex",gap:6,marginBottom:6}}>
-              <button onClick={()=>setLang("english")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:lang==="english"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>EN</button>
-              <button onClick={()=>setLang("urdu")} style={{fontSize:10,padding:"3px 8px",borderRadius:6,cursor:"pointer",background:lang==="urdu"?"rgba(139,92,246,.3)":"transparent",border:"1px solid rgba(139,92,246,.3)",color:"#a78bfa"}}>اردو</button>
-              <button onClick={draftAI} disabled={loading} style={{fontSize:11,padding:"3px 12px",borderRadius:6,cursor:"pointer",background:"rgba(139,92,246,.3)",border:"1px solid rgba(139,92,246,.5)",color:"#a78bfa",fontWeight:600,marginLeft:"auto"}}>{loading?"⏳ Drafting...":"✨ AI Draft"}</button>
-            </div>
-            <textarea className="fi" value={body} onChange={e=>setBody(e.target.value)} rows={10} style={{minHeight:200,fontFamily:"inherit",lineHeight:1.6}} placeholder="Write the letter, or tap AI Draft to generate it. You can edit before generating the PDF."/>
+            <textarea className="fi" value={body} onChange={e=>setBody(e.target.value)} rows={10} style={{minHeight:200,fontFamily:"inherit",lineHeight:1.6}} placeholder="Write the letter body here. You can edit before generating the PDF."/>
           </div>
           <button className="bg" onClick={generate} style={{width:"100%",justifyContent:"center"}}><I n="pdf" s={16}/>Generate Letter PDF</button>
         </div>
@@ -3800,190 +3571,7 @@ function LettersPage({data,toast,setData,save}){
 }
 
 
-// ─── PITCH SCRIPT PAGE ────────────────────────────────────────────────────────
-function PitchPage({user,data,toast}){
-  var myAlloc=(data.allocations||[]).find(function(a){return a.user_id===user.id&&a.active;});
-  var myStall=myAlloc?(data.stalls||[]).find(function(s){return s.id===myAlloc.stall_id;}):null;
-  var brand=myStall?(myStall.client||""):"";
-  var store=myStall?(myStall.name+", "+myStall.city):"";
-  const [product,setProduct]=useState("");
-  const [features,setFeatures]=useState("");
-  const [script,setScript]=useState("");
-  const [loading,setLoading]=useState(false);
 
-  const generate=async()=>{
-    if(!product.trim()){toast("Product ka naam likhein.");return;}
-    setLoading(true);setScript("");
-    try{
-      var prompt="You are a retail training manager for a supermarket marketing company in Pakistan. Create a WhatsApp-style pitch script for a Brand Ambassador standing in a supermarket. "+
-        "Brand: "+(brand||"(general)")+". Store: "+(store||"supermarket")+". Product: "+product+". Key features: "+(features||"(not specified)")+".\n\n"+
-        "Output ONLY in Roman Urdu (Urdu written in English alphabet, e.g. 'Assalam o Alaikum, ye product aap ke liye behtareen hai'). Do NOT use Urdu script. Do NOT use English sentences.\n\n"+
-        "Structure the message in exactly 3 labelled parts:\n"+
-        "1) HOOK: ek polite, local, 1-sentence opening jo guzarte hue shopper ko roke.\n"+
-        "2) PITCH: 2 sentences jo BENEFIT par focus karein (sirf feature nahi), kyun ye product unko chahiye.\n"+
-        "3) CALL TO ACTION: ek clear instruction ke checkout par ye product khareed lein.\n\n"+
-        "Tone: helpful aur informative expert consultant, pushy salesman nahi. Keep it natural and warm.";
-      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
-      var json=await res.json();
-      setScript(json.choices&&json.choices[0]?json.choices[0].message.content:"Script nahi bani. Dobara try karein.");
-    }catch(e){setScript("Connection error. Internet check karein.");}
-    setLoading(false);
-  };
-
-  return(
-    <div>
-      <div className="card" style={{marginBottom:16}}>
-        <div className="ch"><div style={{fontSize:20}}>📣</div><div style={{flex:1}}><div className="ct">Pitch Script Generator</div><div className="cs">WhatsApp-style shopper pitch (Roman Urdu)</div></div></div>
-        <div className="cb">
-          {myStall?(
-            <div style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13}}>
-              <div style={{color:"var(--txd)",fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Aap ki Allocation</div>
-              🏪 <strong>{store}</strong>{brand?<span> · Brand: <strong style={{color:"var(--g)"}}>{brand}</strong></span>:null}
-            </div>
-          ):(
-            <div className="info info-warn" style={{marginBottom:12}}><I n="alert" s={13}/>Aap kisi stall par allocate nahi hain. Phir bhi product ka script bana sakte hain.</div>
-          )}
-          <div className="fg"><label className="fl">Product ka Naam</label><input className="fi" value={product} onChange={e=>setProduct(e.target.value)} placeholder="e.g. Brite Washing Powder 1kg"/></div>
-          <div className="fg"><label className="fl">Khaas Features / Khoobiyan (optional)</label><input className="fi" value={features} onChange={e=>setFeatures(e.target.value)} placeholder="e.g. zyada jhaag, kam paani, daag foran saaf"/></div>
-          <button className="bg" onClick={generate} disabled={loading} style={{width:"100%",justifyContent:"center"}}>{loading?"⏳ Script ban rahi hai...":"✨ Script Banayein"}</button>
-        </div>
-      </div>
-      {script&&<div className="card">
-        <div className="ch"><div style={{fontSize:18}}>💬</div><div className="ct">Aap ka Pitch Script</div></div>
-        <div className="cb">
-          <div style={{background:"var(--d3)",borderRadius:10,padding:"14px",fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",color:"var(--tx)"}}>{script}</div>
-          <div style={{display:"flex",gap:8,marginTop:10}}>
-            <button className="bs" onClick={()=>{navigator.clipboard.writeText(script);toast("Copy ho gaya!");}} style={{flex:1,justifyContent:"center"}}>📋 Copy</button>
-            <button className="bw" onClick={()=>sendWA("",script)} style={{flex:1,justifyContent:"center"}}><I n="wa" s={14}/>WhatsApp</button>
-          </div>
-        </div>
-      </div>}
-    </div>
-  );
-}
-
-
-// ─── ASK AI PAGE ──────────────────────────────────────────────────────────────
-function AskAIPage({data,user}){
-  const [messages,setMessages]=useState([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! I'm your Shinkore AI assistant. I have access to all your business data — staff, attendance, activities, salary, cash, clients and stalls. Ask me anything!"}]);
-  const [input,setInput]=useState("");
-  const [loading,setLoading]=useState(false);
-  const bottomRef=useRef(null);
-
-  useEffect(()=>{if(bottomRef.current)bottomRef.current.scrollIntoView({behavior:"smooth"});},[messages]);
-
-  const buildContext=()=>{
-    const today=new Date().toISOString().slice(0,10);
-    const thisMonth=today.slice(0,7);
-    const staff=(data.users||[]).filter(u=>u.role!=="admin");
-    const todayAtt=(data.attendance||[]).filter(a=>a.date===today);
-    const monthAtt=(data.attendance||[]).filter(a=>a.date.startsWith(thisMonth));
-    const activities=(data.activities||[]);
-    const monthActs=activities.filter(a=>a.date&&a.date.startsWith(thisMonth));
-    const salary=(data.salary||[]);
-    const handovers=(data.handovers||[]);
-    const expenses=(data.expenses||[]);
-    const clients=(data.clients||[]);
-    const stalls=(data.stalls||[]);
-    const allocs=(data.allocations||[]).filter(a=>a.active);
-    const staffSummary=staff.map(u=>{
-      const att=new Set((data.attendance||[]).filter(a=>a.user_id===u.id&&a.date.startsWith(thisMonth)).map(a=>a.date)).size;
-      const acts=monthActs.filter(a=>a.ba_id===u.id||a.supervisor_id===u.id).length;
-      const stall=allocs.find(a=>a.user_id===u.id);
-      const stallName=stall?(stalls.find(s=>s.id===stall.stall_id)?.name||""):"Unassigned";
-      return u.role.toUpperCase()+"#"+u.id.slice(-4)+"(PKR "+u.daily_rate+"/day,"+att+" days this month,"+acts+" activities,stall:"+stallName+")";
-    }).join("; ");
-    const actSummary=monthActs.slice(-20).map(a=>{
-      const ba=(data.users||[]).find(u=>u.id===a.ba_id);
-      return a.date+":"+a.store_name+","+a.city+","+a.brand+",BA#"+(a.ba_id?.slice(-4)||"?")+",inter:"+a.total_interceptions+",pcs:"+a.total_pcs+",kg:"+a.total_kg+",status:"+a.approval_status;
-    }).join("; ");
-    const cashSummary="Handovers total:PKR "+handovers.reduce((s,h)=>s+Number(h.amount_given||0),0)+
-      ", Expenses total:PKR "+expenses.reduce((s,e)=>s+Number(e.amount||0),0)+
-      ", Client payments:PKR "+(data.client_payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
-    const clientSummary=clients.map((cl,i)=>"Client#"+(i+1)+"(brand:"+cl.brand+",active:"+(cl.active?"yes":"no")+")").join("; ");
-    const stallSummary=stalls.map(s=>s.name+","+s.city+",client:"+s.client+",GPS:"+(s.lat?"✓":"✗")).join("; ");
-    return "TODAY: "+today+" | COMPANY: Shinkore Marketing, Abbottabad Pakistan\n"+
-      "STAFF ("+staff.length+"): "+staffSummary+"\n"+
-      "TODAY ATTENDANCE: "+todayAtt.length+" checked in of "+allocs.length+" allocated\n"+
-      "THIS MONTH ACTIVITIES ("+monthActs.length+"): "+actSummary+"\n"+
-      "CASH: "+cashSummary+"\n"+
-      "CLIENTS: "+clientSummary+"\n"+
-      "STALLS: "+stallSummary+"\n"+
-      "SALARY RECORDS: "+salary.length+" records, paid: PKR "+salary.filter(s=>s.status==="paid").reduce((s,r)=>s+Number(r.total||0),0);
-  };
-
-  const sendMessage=async()=>{
-    if(!input.trim()||loading)return;
-    const userMsg={role:"user",content:input.trim()};
-    const newMessages=[...messages,userMsg];
-    setMessages(newMessages);
-    setInput("");
-    setLoading(true);
-    try{
-      const context=buildContext();
-      const systemPrompt="You are Shinkore AI, a smart business assistant for Shinkore Marketing, a field marketing company in Abbottabad, Pakistan. You help CEO Khalid Orakzai manage his business. You have access to all business data provided below. Answer questions accurately, generate reports, give insights, and help make decisions. Be concise but thorough. Respond in English unless asked in Urdu.\n\nBUSINESS DATA:\n"+context;
-      const apiMessages=newMessages.map(m=>({role:m.role,content:m.content}));
-      const res=await fetch("/api/ai",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"llama-3.3-70b-versatile",
-          max_tokens:1000,
-          messages:[{role:"system",content:systemPrompt},...apiMessages]
-        })
-      });
-      const json=await res.json();
-      const reply=json.choices?.[0]?.message?.content||"Sorry, could not get a response.";
-      setMessages(p=>[...p,{role:"assistant",content:reply}]);
-    }catch(e){
-      setMessages(p=>[...p,{role:"assistant",content:"❌ Connection error. Please try again."}]);
-    }
-    setLoading(false);
-  };
-
-  const suggestions=["Who hasn't clocked in today?","Generate morning briefing","Which store has best sales this month?","Show staff performance summary","How much salary is pending?","Which client has most activities?","Analyze this month's expenses","Write a report for all clients"];
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
-      <div style={{background:"linear-gradient(135deg,rgba(139,92,246,.1),rgba(59,130,246,.1))",border:"1px solid rgba(139,92,246,.25)",borderRadius:14,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-        <div style={{fontSize:28}}>🤖</div>
-        <div>
-          <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"#a78bfa"}}>Shinkore AI Assistant</div>
-          <div style={{fontSize:11,color:"var(--txd)"}}>Has access to all your business data • Powered by Claude AI</div>
-        </div>
-      </div>
-      <div style={{flex:1,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
-        {messages.map(function(m,i){
-          return(
-            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"85%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?"linear-gradient(135deg,rgba(139,92,246,.3),rgba(59,130,246,.3))":"var(--d3)",border:"1px solid "+(m.role==="user"?"rgba(139,92,246,.4)":"var(--bo)"),fontSize:13,color:"var(--tx)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
-                {m.role==="assistant"&&<div style={{fontSize:10,color:"#a78bfa",fontWeight:600,marginBottom:4}}>🤖 SHINKORE AI</div>}
-                {m.content}
-              </div>
-            </div>
-          );
-        })}
-        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}>
-          <div style={{padding:"10px 14px",borderRadius:"14px 14px 14px 4px",background:"var(--d3)",border:"1px solid var(--bo)",fontSize:13,color:"#a78bfa"}}>⏳ Thinking...</div>
-        </div>}
-        <div ref={bottomRef}/>
-      </div>
-      {messages.length===1&&<div style={{marginBottom:10}}>
-        <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>💡 Quick questions:</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-          {suggestions.map(function(s){return(
-            <button key={s} onClick={()=>setInput(s)} style={{fontSize:11,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:20,padding:"4px 10px",cursor:"pointer",color:"var(--txd)"}}>{s}</button>
-          );})}
-        </div>
-      </div>}
-      <div style={{display:"flex",gap:8}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage()} placeholder="Ask anything about your business..." className="fi" style={{flex:1,fontSize:13}}/>
-        <button onClick={sendMessage} disabled={loading||!input.trim()} style={{background:"linear-gradient(135deg,rgba(139,92,246,.4),rgba(59,130,246,.4))",border:"1px solid rgba(139,92,246,.5)",borderRadius:10,padding:"0 16px",cursor:"pointer",color:"#a78bfa",fontSize:18,opacity:loading||!input.trim()?0.5:1}}>➤</button>
-        <button onClick={()=>setMessages([{role:"assistant",content:"👋 Assalam o Alaikum Khalid! How can I help you today?"}])} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"0 12px",cursor:"pointer",color:"var(--txd)",fontSize:12}}>🗑️</button>
-      </div>
-    </div>
-  );
-}
 
 // ─── CLIENT STORE MAP (LEAFLET) ───────────────────────────────────────────────
 function ClientStoreMap({client,data}){
@@ -4693,7 +4281,6 @@ export default function App(){
         case "cash": return <CashPage data={data} setData={setData} toast={toast}/>;
         case "salary": return <SalaryPage data={data} setData={setData} toast={toast}/>;
         case "training": return <TrainingPage user={user} data={data} setData={setData} toast={toast}/>;
-        case "ai": return <AskAIPage data={data} user={user}/>;
         default: return <AdminDash data={data} toast={toast} setPage={setPage}/>;
       }
     } else if(user.role==="client"){
@@ -4706,7 +4293,7 @@ export default function App(){
         case "my-activity": return isAllocated?<ActivityPage user={user} data={data} setData={setData} toast={toast}/>:<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}><div style={{fontSize:48}}>🔒</div><div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:16}}>Not Allocated</div><div style={{fontSize:13,marginTop:6}}>Contact admin to assign you to a stall first.</div></div></div>;
         case "attend": return <AttendancePage data={data} setData={setData} toast={toast}/>;
         case "training": return <TrainingPage user={user} data={data} setData={setData} toast={toast}/>;
-        case "pitch": return <PitchPage user={user} data={data} toast={toast}/>;
+
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
