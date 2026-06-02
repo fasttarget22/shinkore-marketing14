@@ -17,9 +17,9 @@ const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delet
 const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done","sm_documents"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const ADMIN_PASSWORD = "Khalid";
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
 const COMPANY = "Shinkore Marketing";
-const ADMIN_PHONES = ["00923135443656", "00923174886655"];
+const ADMIN_PHONES = (import.meta.env.VITE_ADMIN_PHONES||"").split(",").filter(Boolean);
 const GPS_RADIUS_M = 200;
 const sendDailySummary=(data)=>{
   const today=new Date().toISOString().slice(0,10);
@@ -43,7 +43,7 @@ const sendDailySummary=(data)=>{
     +"— Shinkore Marketing System";
   ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
 };
-const IMGBB_KEY="23d6b85fb8d0698b3bf3ec4d4c5deb22";
+const IMGBB_KEY=import.meta.env.VITE_IMGBB_KEY;
 const uploadPhoto=async(file)=>{const fd=new FormData();fd.append("image",file);fd.append("key",IMGBB_KEY);try{const r=await fetch("https://api.imgbb.com/1/upload",{method:"POST",body:fd});const d=await r.json();if(d.success)return{url:d.data.url,thumb:d.data.thumb.url};return null;}catch{return null;}};
 
 // ─── DATA INIT ────────────────────────────────────────────────────────────────
@@ -202,16 +202,8 @@ function Login({onLogin}){
     }
     if(!u) return setErr("Phone not found. Ask admin to register you.");
     if(u.role==="admin"&&f.pass!==ADMIN_PASSWORD) return setErr("Wrong admin password.");
-    if(u.role!=="admin"&&u.pin&&f.pass!==u.pin) return setErr("Wrong PIN. Contact admin if forgotten.");
+    if(u.role!=="admin"&&(!u.pin||!u.pin.trim()||f.pass!==u.pin.trim())) return setErr("Wrong PIN. Contact admin if forgotten.");
     onLogin(u);
-  };
-
-  const doUp=()=>{
-    setErr("");
-    if(!f.name||!f.phone) return setErr("Name and phone required.");
-    if((data.users||[]).find(u=>u.phone===f.phone)) return setErr("Phone already registered.");
-    const nu={id:genId(),name:f.name,phone:f.phone,role:f.role,daily_rate:Number(f.daily_rate)||0,team:"",callmebot_key:""};
-    (data.users||[]).push(nu); save(data); onLogin(nu);
   };
 
   return(
