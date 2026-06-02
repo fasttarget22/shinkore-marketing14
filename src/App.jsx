@@ -3891,18 +3891,18 @@ function AskAIPage({data,user}){
       const acts=monthActs.filter(a=>a.ba_id===u.id||a.supervisor_id===u.id).length;
       const stall=allocs.find(a=>a.user_id===u.id);
       const stallName=stall?(stalls.find(s=>s.id===stall.stall_id)?.name||""):"Unassigned";
-      return u.name+"("+u.role+",PKR "+u.daily_rate+"/day,"+att+" days this month,"+acts+" activities,stall:"+stallName+")";
+      return u.role.toUpperCase()+"#"+u.id.slice(-4)+"(PKR "+u.daily_rate+"/day,"+att+" days this month,"+acts+" activities,stall:"+stallName+")";
     }).join("; ");
     const actSummary=monthActs.slice(-20).map(a=>{
       const ba=(data.users||[]).find(u=>u.id===a.ba_id);
-      return a.date+":"+a.store_name+","+a.city+","+a.brand+",BA:"+(ba?.name||"?")+",inter:"+a.total_interceptions+",pcs:"+a.total_pcs+",kg:"+a.total_kg+",status:"+a.approval_status;
+      return a.date+":"+a.store_name+","+a.city+","+a.brand+",BA#"+(a.ba_id?.slice(-4)||"?")+",inter:"+a.total_interceptions+",pcs:"+a.total_pcs+",kg:"+a.total_kg+",status:"+a.approval_status;
     }).join("; ");
     const cashSummary="Handovers total:PKR "+handovers.reduce((s,h)=>s+Number(h.amount_given||0),0)+
       ", Expenses total:PKR "+expenses.reduce((s,e)=>s+Number(e.amount||0),0)+
       ", Client payments:PKR "+(data.client_payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
-    const clientSummary=clients.map(cl=>cl.name+"(brand:"+cl.brand+",phone:"+cl.phone+")").join("; ");
+    const clientSummary=clients.map((cl,i)=>"Client#"+(i+1)+"(brand:"+cl.brand+",active:"+(cl.active?"yes":"no")+")").join("; ");
     const stallSummary=stalls.map(s=>s.name+","+s.city+",client:"+s.client+",GPS:"+(s.lat?"✓":"✗")).join("; ");
-    return "TODAY: "+today+" | COMPANY: Shinkore Marketing, CEO: Khalid Orakzai, Abbottabad Pakistan\n"+
+    return "TODAY: "+today+" | COMPANY: Shinkore Marketing, Abbottabad Pakistan\n"+
       "STAFF ("+staff.length+"): "+staffSummary+"\n"+
       "TODAY ATTENDANCE: "+todayAtt.length+" checked in of "+allocs.length+" allocated\n"+
       "THIS MONTH ACTIVITIES ("+monthActs.length+"): "+actSummary+"\n"+
@@ -4603,7 +4603,7 @@ function Soon({title}){
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
-  const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");return s?JSON.parse(s):null;}catch{return null;}};
+  const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");if(!s)return null;const u=JSON.parse(s);if(u&&u.pin!==undefined){const{pin:_,...clean}=u;localStorage.setItem("shinkore_session",JSON.stringify(clean));return clean;}return u;}catch{return null;}};
   const [user,setUser]=useState(getSaved);
   const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="supervisor"?"my-dash":u.role==="client"?"client_dash":"my-dash"):"dash";});
   
@@ -4661,7 +4661,7 @@ export default function App(){
 
   const toast=(m)=>setToastMsg(m);
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
-  const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;localStorage.setItem("shinkore_session",JSON.stringify(fresh));setUser(fresh);setPage(fresh.role==="admin"?"dash":"my-dash");};
+  const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":"my-dash");};
 
   const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
