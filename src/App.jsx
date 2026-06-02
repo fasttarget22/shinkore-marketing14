@@ -18,6 +18,7 @@ const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocati
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
+console.log("[DEBUG] Admin pass:", import.meta.env.VITE_ADMIN_PASSWORD ? "loaded, length=" + import.meta.env.VITE_ADMIN_PASSWORD.length : "UNDEFINED - env var not reaching build");
 const COMPANY = "Shinkore Marketing";
 const ADMIN_PHONES = (import.meta.env.VITE_ADMIN_PHONES||"").split(",").filter(Boolean);
 const GPS_RADIUS_M = 200;
