@@ -342,7 +342,7 @@ function AdminDash({data,toast,setPage}){
           return (u?u.name:"?")+"/"+(u?u.role:"")+" at "+(s?s.name:"?")+","+(s?s.city:"")+" duty:"+a.duty_start;
         }).join("; ");
         try{
-          const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
+          const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:200,messages:[{role:"user",content:"2-sentence urgent attendance alert. Staff not checked in 30min after duty: "+details+". Be direct and urgent."}]})});
           const json=await res.json();
           setAlertPopup({absent,details,msg:json.choices&&json.choices[0]?json.choices[0].message.content:absent.length+" staff not checked in!"});
         }catch(e){setAlertPopup({absent,details,msg:absent.length+" staff not checked in on time!"});}
@@ -405,9 +405,9 @@ function AdminDash({data,toast,setPage}){
         "This Month Interceptions: "+totalInterceptions+"\n"+
         "This Month Sales (pcs): "+totalSales+"\n"+
         "Write a concise 4-5 sentence morning briefing. Mention key alerts, attendance status, and one actionable recommendation. Be direct and professional."+(briefLang==="urdu"?" Respond ONLY in proper Urdu language using Nastaliq Urdu script. Do NOT use any English words at all — translate everything including technical terms like Briefing, Pending, Approvals, Activities into Urdu. Write 100% in اردو script only.":"");
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      const res=await fetch("/api/ai",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
@@ -639,9 +639,9 @@ function StaffPage({data,setData,toast}){
         "High Priority Remarks: "+highRemarks+"\n"+
         "Approved Activities: "+approved+"\n"+
         "Write a 3-4 sentence performance review. Rate as Excellent/Good/Average/Poor. Give one specific recommendation. Be professional and constructive.";
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      const res=await fetch("/api/ai",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:1000,messages:[{role:"user",content:prompt}]})
       });
       const json=await res.json();
@@ -2818,9 +2818,9 @@ function ActivityPage({user,data,setData,toast}){
         "BA Remark: "+(act.ba_remark||"None")+" ("+act.ba_remark_cat+" priority)\n"+
         "Approval Status: "+act.approval_status+"\n"+
         "Write in professional English. Start with the date and BA name. Be concise and factual.";
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      const res=await fetch("/api/ai",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"llama-3.3-70b-versatile",
           max_tokens:1000,
@@ -3408,7 +3408,7 @@ function ClientPDFPage({user,data,toast}){
         "Gifts given: "+totalGifts+"\nSamples given: "+totalSamples+"\nCities: "+(cities.join(", ")||"-")+"\nStores covered: "+stores.length+"\n"+
         "Write a confident, client-facing summary highlighting reach, engagement and sales outcomes, plus one forward-looking recommendation. Be specific with the numbers."+
         (aiLang==="urdu"?" Respond ONLY in proper Urdu Nastaliq script. Do not use English words; translate technical terms into Urdu.":"");
-      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
+      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
       var json=await res.json();
       setAiSummary(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not generate summary.");
     }catch(e){setAiSummary("Error generating summary. Check connection.");}
@@ -3713,7 +3713,7 @@ function LettersPage({data,toast,setData,save}){
       var roleLabel=emp?(emp.role==="ba"?"Business Ambassador":"Supervisor"):"employee";
       var details=emp?("Employee Name: "+emp.name+"\nDesignation: "+roleLabel+"\nCNIC: "+(emp.cnic||"N/A")+"\nPhone: "+emp.phone+"\nJoining Date: "+(emp.join_date||"N/A")+"\nMonthly basis daily rate: PKR "+(emp.daily_rate||"N/A")+"\nBank/Account: "+(emp.bank_account||"N/A")):"(no employee selected)";
       var prompt="You are an HR officer at Shinkore Marketing, a field marketing company in Abbottabad, Pakistan, headed by CEO Khalid Orakzai. Write a formal, professional "+type.label+" addressed to: "+recipient+".\n\nEmployee details:\n"+details+"\n\nWrite only the BODY of the letter (no letterhead, no date, no signature block — those are added separately). Keep it concise, formal and ready to sign. "+(lang==="urdu"?"Write the letter body in proper Urdu Nastaliq script.":"Write in professional English.");
-      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,messages:[{role:"user",content:prompt}]})});
+      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,messages:[{role:"user",content:prompt}]})});
       var json=await res.json();
       setBody(json.choices&&json.choices[0]?json.choices[0].message.content:"Could not draft. Try again.");
       if(!subject)setSubject(type.label);
@@ -3823,7 +3823,7 @@ function PitchPage({user,data,toast}){
         "2) PITCH: 2 sentences jo BENEFIT par focus karein (sirf feature nahi), kyun ye product unko chahiye.\n"+
         "3) CALL TO ACTION: ek clear instruction ke checkout par ye product khareed lein.\n\n"+
         "Tone: helpful aur informative expert consultant, pushy salesman nahi. Keep it natural and warm.";
-      var res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
+      var res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:600,messages:[{role:"user",content:prompt}]})});
       var json=await res.json();
       setScript(json.choices&&json.choices[0]?json.choices[0].message.content:"Script nahi bani. Dobara try karein.");
     }catch(e){setScript("Connection error. Internet check karein.");}
@@ -3923,9 +3923,9 @@ function AskAIPage({data,user}){
       const context=buildContext();
       const systemPrompt="You are Shinkore AI, a smart business assistant for Shinkore Marketing, a field marketing company in Abbottabad, Pakistan. You help CEO Khalid Orakzai manage his business. You have access to all business data provided below. Answer questions accurately, generate reports, give insights, and help make decisions. Be concise but thorough. Respond in English unless asked in Urdu.\n\nBUSINESS DATA:\n"+context;
       const apiMessages=newMessages.map(m=>({role:m.role,content:m.content}));
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      const res=await fetch("/api/ai",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_KEY},
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"llama-3.3-70b-versatile",
           max_tokens:1000,
