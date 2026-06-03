@@ -778,10 +778,44 @@ function StaffPage({data,setData,toast}){
 function StallsPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
-  const emptyF={name:"",city:"",dept:"",focal_name:"",focal_mob:"",latitude:"",longitude:"",from_date:"",to_date:"",num_days:"",client:"",duty_start:"09:00",perm_cost:"",perm_charged:"",ba_cost:"",ba_charged:"",sup_cost:"",sup_charged:"",other_cost:"",other_charged:"",notes:""};
+  const emptyF={name:"",city:"",dept:"",focal_name:"",focal_mob:"",latitude:"",longitude:"",from_date:"",to_date:"",num_days:"",client:"",duty_start:"09:00",perm_cost:"",perm_charged:"",ba_cost:"",ba_charged:"",sup_cost:"",sup_charged:"",other_cost:"",other_charged:"",notes:"",products:[],activities:[]};
   const [f,setF]=useState(emptyF);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const calc=(fm)=>{const d=Number(fm.num_days)||1;const tc=(Number(fm.perm_charged)||0)+(Number(fm.ba_charged)||0)*d+(Number(fm.sup_charged)||0)*d+(Number(fm.other_charged)||0);const tx=(Number(fm.perm_cost)||0)+(Number(fm.ba_cost)||0)*d+(Number(fm.sup_cost)||0)*d+(Number(fm.other_cost)||0);return{tc,tx,profit:tc-tx};};
+
+  const [clientProducts,setClientProducts]=useState([]);
+  const [loadingProds,setLoadingProds]=useState(false);
+  const [showNewProd,setShowNewProd]=useState(false);
+  const [newProd,setNewProd]=useState({name:"",sku:"",unit_price:""});
+  const [savingProd,setSavingProd]=useState(false);
+
+  useEffect(()=>{
+    if(!f.client){setClientProducts([]);setLoadingProds(false);return;}
+    const match=(data.clients||[]).find(c=>(c.name||"").toLowerCase()===f.client.toLowerCase()||(c.brand||"").toLowerCase()===f.client.toLowerCase());
+    if(!match){setClientProducts([]);setLoadingProds(false);return;}
+    setLoadingProds(true);
+    SB.from("sm_products").select("*").eq("client_id",match.id).then(({data:rows})=>{setClientProducts(rows||[]);setLoadingProds(false);});
+  },[f.client]);
+
+  const toggleProduct=(id,checked)=>set("products",checked?[...(f.products||[]).filter(x=>x!==id),id]:(f.products||[]).filter(x=>x!==id));
+  const toggleActivity=(val,checked)=>set("activities",checked?[...(f.activities||[]).filter(x=>x!==val),val]:(f.activities||[]).filter(x=>x!==val));
+
+  const saveNewProd=async()=>{
+    if(!newProd.name.trim()||!newProd.sku.trim()) return toast("Product name and SKU required.");
+    const match=(data.clients||[]).find(c=>(c.name||"").toLowerCase()===f.client.toLowerCase()||(c.brand||"").toLowerCase()===f.client.toLowerCase());
+    if(!match) return toast("Client not found in clients list.");
+    const dupSku=clientProducts.some(p=>p.sku.trim().toLowerCase()===newProd.sku.trim().toLowerCase());
+    if(dupSku) return toast(`SKU "${newProd.sku}" already exists for this client.`);
+    setSavingProd(true);
+    const row={id:crypto.randomUUID(),client_id:match.id,name:newProd.name.trim(),sku:newProd.sku.trim().toUpperCase(),unit_price:Number(newProd.unit_price)||0};
+    const{error}=await SB.from("sm_products").insert([row]);
+    setSavingProd(false);
+    if(error){toast("Failed to add product: "+error.message);return;}
+    setClientProducts(cp=>[...cp,row]);
+    setF(fv=>({...fv,products:[...(fv.products||[]),row.id]}));
+    setNewProd({name:"",sku:"",unit_price:""});setShowNewProd(false);
+    toast("Product added and selected!");
+  };
 
   const [gpsCapturing,setGpsCapturing]=useState(false);
   const [gpsAccuracy,setGpsAccuracy]=useState(null);
@@ -805,14 +839,14 @@ function StallsPage({data,setData,toast}){
     },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
   };
 
-  const openAdd=()=>{setEditing(null);setF(emptyF);setShow(true)};
-  const openEdit=(s)=>{setEditing(s);setF({...emptyF,...s});setShow(true)};
+  const openAdd=()=>{setEditing(null);setF(emptyF);setShowNewProd(false);setNewProd({name:"",sku:"",unit_price:""});setShow(true)};
+  const openEdit=(s)=>{setEditing(s);setF({...emptyF,...s,products:Array.isArray(s.products)?s.products:[],activities:Array.isArray(s.activities)?s.activities:[]});setShowNewProd(false);setNewProd({name:"",sku:"",unit_price:""});setShow(true)};
 
   const doSave=()=>{
     if(!f.name||!f.city) return toast("Name and city required.");
     const{tc,tx,profit}=calc(f);
     const sid=editing?editing.id:genId();
-    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0,latitude:f.latitude?Number(f.latitude):null,longitude:f.longitude?Number(f.longitude):null};
+    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0,latitude:f.latitude?Number(f.latitude):null,longitude:f.longitude?Number(f.longitude):null,products:Array.isArray(f.products)?f.products:[],activities:Array.isArray(f.activities)?f.activities:[]};
     const d={...data};
     if(editing) d.stalls=d.stalls.map(s=>s.id===editing.id?{...s,...sd}:s);
     else{
@@ -868,6 +902,15 @@ function StallsPage({data,setData,toast}){
                     return u?<span key={a.id} style={{background:"var(--gd)",border:"1px solid var(--bo)",borderRadius:20,padding:"2px 10px",fontSize:12,color:"var(--gl)"}}>{u.name}</span>:null;
                   })}
                 </div>
+                {((s.activities||[]).length>0||(s.products||[]).length>0)&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                    {(s.activities||[]).map(a=>(
+                      <span key={a} style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:a==="sampling"?"rgba(58,155,213,.15)":a==="gifting"?"rgba(201,168,76,.15)":"rgba(46,204,113,.15)",color:a==="sampling"?"var(--bl)":a==="gifting"?"var(--g)":"var(--gr)",border:"1px solid "+(a==="sampling"?"rgba(58,155,213,.3)":a==="gifting"?"rgba(201,168,76,.3)":"rgba(46,204,113,.3)"),textTransform:"capitalize"}}>{a}</span>
+                    ))}
+                    {(s.products||[]).length>0&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"rgba(201,168,76,.08)",color:"var(--g)",border:"1px solid rgba(201,168,76,.2)"}}>{(s.products||[]).length} product{(s.products||[]).length!==1?"s":""}</span>}
+                  </div>
+                )}
+                {s.notes&&<div style={{fontSize:11,color:"var(--txd)",marginTop:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.notes}</div>}
               </div>
             );
           })}
@@ -885,8 +928,69 @@ function StallsPage({data,setData,toast}){
               </div>
               <div className="frow">
                 <div className="fg"><label className="fl">Department (Permission from)</label><input className="fi" value={f.dept} onChange={e=>set("dept",e.target.value)} placeholder="e.g. PEMRA, CDA"/></div>
-                <div className="fg"><label className="fl">Client</label><input className="fi" value={f.client} onChange={e=>set("client",e.target.value)} placeholder="e.g. Telenor"/></div>
+                <div className="fg"><label className="fl">Client</label>
+                  <select className="fsel" value={f.client} onChange={e=>set("client",e.target.value)}>
+                    <option value="">-- Select client --</option>
+                    {(data.clients||[]).map(c=><option key={c.id} value={c.name}>{c.name}{c.brand?" — "+c.brand:""}</option>)}
+                  </select>
+                </div>
               </div>
+              {/* Products / SKUs */}
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>📦 Products / SKUs</div>
+                {!f.client?(
+                  <div style={{fontSize:12,color:"var(--txd)"}}>Select a client above to load their products.</div>
+                ):loadingProds?(
+                  <div style={{fontSize:12,color:"var(--txd)"}}>Loading products...</div>
+                ):(
+                  <>
+                    {clientProducts.length===0&&!showNewProd&&(
+                      <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>
+                        {(data.clients||[]).find(c=>(c.name||"").toLowerCase()===f.client.toLowerCase()||(c.brand||"").toLowerCase()===f.client.toLowerCase())
+                          ?"No products for this client yet."
+                          :"Client not matched in clients list — check spelling or add them in Clients first."}
+                      </div>
+                    )}
+                    {clientProducts.map(p=>(
+                      <label key={p.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,cursor:"pointer"}}>
+                        <input type="checkbox" checked={(f.products||[]).includes(p.id)} onChange={e=>toggleProduct(p.id,e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"var(--g)"}}/>
+                        <span style={{flex:1,fontSize:13}}>{p.name}</span>
+                        <span style={{fontSize:11,color:"var(--txd)",background:"var(--d1)",padding:"1px 7px",borderRadius:4}}>{p.sku}</span>
+                        {p.unit_price>0&&<span style={{fontSize:11,color:"var(--g)",flexShrink:0}}>{formatPKR(p.unit_price)}</span>}
+                      </label>
+                    ))}
+                    {showNewProd?(
+                      <div style={{background:"var(--d1)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",marginTop:clientProducts.length>0?8:0}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px",gap:8,marginBottom:8}}>
+                          <input className="fi" placeholder="Product name" value={newProd.name} onChange={e=>setNewProd(p=>({...p,name:e.target.value}))} style={{fontSize:12}}/>
+                          <input className="fi" placeholder="SKU" value={newProd.sku} onChange={e=>setNewProd(p=>({...p,sku:e.target.value}))} style={{fontSize:12}}/>
+                          <input className="fi" type="number" placeholder="Price" value={newProd.unit_price} onChange={e=>setNewProd(p=>({...p,unit_price:e.target.value}))} style={{fontSize:12}}/>
+                        </div>
+                        <div className="ma">
+                          <button className="bs" onClick={()=>{setShowNewProd(false);setNewProd({name:"",sku:"",unit_price:""});}} style={{fontSize:12}}>Cancel</button>
+                          <button className="bg" onClick={saveNewProd} disabled={savingProd} style={{fontSize:12,opacity:savingProd?0.6:1}}><I n="ok" s={13}/>{savingProd?"Saving...":"Save Product"}</button>
+                        </div>
+                      </div>
+                    ):(
+                      <button className="bs" onClick={()=>setShowNewProd(true)} style={{fontSize:12,marginTop:clientProducts.length>0?8:0}}><I n="plus" s={12}/>Add New Product</button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Activity Types */}
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:10}}>🎯 Activity Types</div>
+                <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                  {[{val:"sampling",label:"Sampling"},{val:"gifting",label:"Gifting"},{val:"sales",label:"Sales"}].map(act=>(
+                    <label key={act.val} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",fontSize:13}}>
+                      <input type="checkbox" checked={(f.activities||[]).includes(act.val)} onChange={e=>toggleActivity(act.val,e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"var(--g)"}}/>
+                      {act.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="frow">
                 <div className="fg"><label className="fl">Permission From</label><input className="fi" type="date" value={f.from_date} onChange={e=>set("from_date",e.target.value)}/></div>
                 <div className="fg"><label className="fl">Permission To</label><input className="fi" type="date" value={f.to_date} onChange={e=>set("to_date",e.target.value)}/></div>
@@ -944,7 +1048,7 @@ function StallsPage({data,setData,toast}){
                   <div className="fg"><label className="fl">Other — You Pay</label><input className="fi" type="number" value={f.other_cost} onChange={e=>set("other_cost",e.target.value)} placeholder="0"/></div>
                   <div className="fg"><label className="fl">Other — Charge Client</label><input className="fi" type="number" value={f.other_charged} onChange={e=>set("other_charged",e.target.value)} placeholder="0"/></div>
                 </div>
-                <div className="fg"><label className="fl">Notes (Optional)</label><input className="fi" value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Any extra info"/></div>
+                <div className="fg"><label className="fl">Notes (Optional)</label><textarea className="fi" value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Any extra info" rows={2} style={{resize:"vertical",fontFamily:"inherit"}}/></div>
               </div>
               {f.num_days?(()=>{const{tc,tx,profit}=calc(f);return(<div style={{background:"var(--d1)",border:"1px solid var(--g)",borderRadius:10,padding:"14px",marginBottom:10}}><div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:8}}>📊 Live Profit ({f.num_days} days)</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}><div><div style={{fontSize:10,color:"var(--txd)"}}>Total Invoice</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--g)"}}>{formatPKR(tc)}</div></div><div><div style={{fontSize:10,color:"var(--txd)"}}>Your Cost</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:"var(--rd)"}}>{formatPKR(tx)}</div></div><div><div style={{fontSize:10,color:"var(--txd)"}}>Net Profit</div><div style={{fontFamily:"Rajdhani",fontSize:16,color:profit>=0?"var(--gr)":"var(--rd)"}}>{formatPKR(profit)}</div></div></div></div>);})():null}
               <div className="info info-blue" style={{marginBottom:10}}><I n="money" s={13}/>Adding stall auto-creates billing record in Cash & Finance</div>
