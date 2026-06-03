@@ -276,6 +276,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"alerts",icon:"alert",label:"Late Alerts"},
     {id:"training",icon:"users",label:"Training"},
+    {id:"dtd-dash",icon:"map",label:"DTD Visits"},
   ]:[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"clock-in",icon:"clock",label:"Clock In / Out"},
@@ -284,10 +285,12 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"my-activity",icon:"map",label:"My Activities"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"training",icon:"users",label:"Training"},
+    {id:"dtd-dash",icon:"map",label:"DTD Visits"},
   ]):[
     {id:"my-dash",icon:"dash",label:"My Dashboard"},
     {id:"my-salary",icon:"money",label:"My Salary"},
     {id:"documents",icon:"pdf",label:"My Documents"},
+    {id:"dtd-dash",icon:"map",label:"DTD Visits"},
   ];
   const clientNav=[
     {id:"client_dash",icon:"dash",label:"My Dashboard"},
@@ -4605,6 +4608,309 @@ function ProductsPage({data,toast}){
   );
 }
 
+// ─── DTD DASH ─────────────────────────────────────────────────────────────────
+function DTDDashPage({user,toast}){
+  const today=new Date().toISOString().slice(0,10);
+  const fmtTime=(iso)=>{if(!iso)return"";try{return new Date(iso).toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});}catch{return iso;}};
+
+  const [loading,setLoading]=useState(true);
+  const [campaigns,setCampaigns]=useState([]);
+  const [activeCampaign,setActiveCampaign]=useState(null);
+  const [products,setProducts]=useState([]);
+  const [clockRow,setClockRow]=useState(null);
+  const [clockLoading,setClockLoading]=useState(false);
+  const [visits,setVisits]=useState([]);
+  const [visitItemCounts,setVisitItemCounts]=useState({});
+  const [showModal,setShowModal]=useState(false);
+  const [saving,setSaving]=useState(false);
+
+  const emptyForm=()=>({customer_name:"",customer_phone:"",photo_url:"",photoUploading:false,gps:null,gpsCapturing:false,gpsError:"",lines:[{product_id:"",sku:"",product_name:"",qty:1,type:"sale"}]});
+  const [form,setForm]=useState(emptyForm());
+
+  useEffect(()=>{
+    SB.from("sm_campaigns").select("*").eq("status","active").then(({data:rows})=>{
+      const mine=(rows||[]).filter(c=>{const bas=c.assigned_bas;if(!bas)return false;return Array.isArray(bas)?bas.includes(user.id):false;});
+      setCampaigns(mine);
+      if(mine.length===1)loadCampaign(mine[0]);
+      else setLoading(false);
+    });
+  },[]);
+
+  const loadCampaign=(c)=>{
+    setActiveCampaign(c);
+    setLoading(true);
+    Promise.all([
+      SB.from("sm_products").select("*").eq("client_id",c.client_id),
+      SB.from("sm_dtd_clock").select("*").eq("ba_id",user.id).eq("campaign_id",c.id).eq("work_date",today).limit(1),
+      SB.from("sm_door_visits").select("*").eq("ba_id",user.id).eq("campaign_id",c.id)
+    ]).then(([{data:prods},{data:clocks},{data:allVisits}])=>{
+      setProducts(prods||[]);
+      setClockRow((clocks&&clocks[0])||null);
+      const todayV=(allVisits||[]).filter(v=>v.visit_time&&v.visit_time.startsWith(today));
+      setVisits(todayV);
+      if(todayV.length>0){
+        const ids=todayV.map(v=>v.id);
+        SB.from("sm_door_items").select("visit_id").in("visit_id",ids).then(({data:items})=>{
+          const counts={};
+          (items||[]).forEach(item=>{counts[item.visit_id]=(counts[item.visit_id]||0)+1;});
+          setVisitItemCounts(counts);
+        });
+      }
+      setLoading(false);
+    });
+  };
+
+  const doClockIn=async()=>{
+    setClockLoading(true);
+    const row={id:crypto.randomUUID(),campaign_id:activeCampaign.id,ba_id:user.id,clock_in:new Date().toISOString(),clock_out:null,work_date:today};
+    const{error}=await SB.from("sm_dtd_clock").insert([row]);
+    setClockLoading(false);
+    if(error){toast("Clock in failed: "+error.message);return;}
+    setClockRow(row);toast("Clocked in! Start your door visits.");
+  };
+
+  const doClockOut=async()=>{
+    setClockLoading(true);
+    const outTime=new Date().toISOString();
+    const{error}=await SB.from("sm_dtd_clock").update({clock_out:outTime}).eq("id",clockRow.id);
+    setClockLoading(false);
+    if(error){toast("Clock out failed: "+error.message);return;}
+    setClockRow({...clockRow,clock_out:outTime});toast("Clocked out. Good work today!");
+  };
+
+  const captureGPS=()=>{
+    setForm(f=>({...f,gpsCapturing:true,gpsError:""}));
+    if(!navigator.geolocation){setForm(f=>({...f,gpsCapturing:false,gpsError:"GPS not available on this device."}));return;}
+    navigator.geolocation.getCurrentPosition(
+      pos=>{setForm(f=>({...f,gps:{lat:pos.coords.latitude.toFixed(6),lng:pos.coords.longitude.toFixed(6)},gpsCapturing:false,gpsError:""}));},
+      ()=>{setForm(f=>({...f,gpsCapturing:false,gpsError:"GPS denied. Enable location and tap Retry."}));},
+      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    );
+  };
+
+  const openModal=()=>{setForm(emptyForm());setShowModal(true);setTimeout(captureGPS,0);};
+
+  const setLine=(idx,key,val)=>{
+    setForm(f=>{
+      const lines=[...f.lines];
+      lines[idx]={...lines[idx],[key]:val};
+      if(key==="product_id"){const p=products.find(x=>x.id===val);if(p){lines[idx].sku=p.sku;lines[idx].product_name=p.name;}}
+      return{...f,lines};
+    });
+  };
+  const addLine=()=>setForm(f=>({...f,lines:[...f.lines,{product_id:"",sku:"",product_name:"",qty:1,type:"sale"}]}));
+  const removeLine=(idx)=>setForm(f=>({...f,lines:f.lines.filter((_,i)=>i!==idx)}));
+
+  const doSaveVisit=async()=>{
+    if(!form.gps){toast("GPS not captured yet.");return;}
+    if(!form.customer_name.trim()){toast("Customer name required.");return;}
+    if(!form.customer_phone.trim()){toast("Customer phone required.");return;}
+    const validLines=form.lines.filter(l=>l.product_id);
+    if(validLines.length===0){toast("Add at least one product.");return;}
+    if(validLines.some(l=>Number(l.qty)<1)){toast("Qty must be at least 1.");return;}
+    setSaving(true);
+    const visitId=crypto.randomUUID();
+    const visitRow={id:visitId,campaign_id:activeCampaign.id,ba_id:user.id,client_id:activeCampaign.client_id,latitude:Number(form.gps.lat),longitude:Number(form.gps.lng),visit_time:new Date().toISOString(),customer_name:form.customer_name.trim(),customer_phone:form.customer_phone.trim(),photo_url:form.photo_url||null};
+    const{error:e1}=await SB.from("sm_door_visits").insert([visitRow]);
+    if(e1){setSaving(false);toast("Save failed: "+e1.message);return;}
+    const itemRows=validLines.map(l=>({id:crypto.randomUUID(),visit_id:visitId,product_id:l.product_id,sku:l.sku,product_name:l.product_name,qty:Number(l.qty),type:l.type}));
+    const{error:e2}=await SB.from("sm_door_items").insert(itemRows);
+    setSaving(false);
+    // Always add visit to local state and close modal — visit row exists in Supabase either way.
+    // If items failed, show a warning and record 0 items so the user knows to follow up.
+    setVisits(v=>[visitRow,...v]);
+    setVisitItemCounts(c=>({...c,[visitId]:e2?0:itemRows.length}));
+    setShowModal(false);setForm(emptyForm());
+    if(e2)toast("⚠️ Visit saved but products failed to record — contact admin.");
+    else toast("Visit saved! ✅");
+  };
+
+  if(loading)return<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading...</div></div>;
+
+  if(campaigns.length===0)return(
+    <div className="card">
+      <div style={{textAlign:"center",padding:"48px 20px"}}>
+        <div style={{fontSize:48}}>🚪</div>
+        <div style={{fontFamily:"Rajdhani",fontSize:20,marginTop:14,color:"var(--g)"}}>No Active DTD Campaign</div>
+        <div style={{fontSize:13,marginTop:6,color:"var(--txd)"}}>No active DTD campaign is assigned to you. Contact admin.</div>
+      </div>
+    </div>
+  );
+
+  if(!activeCampaign)return(
+    <div className="card">
+      <div className="ch"><I n="flag" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Select Campaign</div><div className="cs">{campaigns.length} active campaigns assigned</div></div></div>
+      <div className="cb">
+        {campaigns.map(c=>(
+          <button key={c.id} onClick={()=>loadCampaign(c)} style={{display:"block",width:"100%",textAlign:"left",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:8,cursor:"pointer",color:"var(--tx)"}}>
+            <div style={{fontWeight:700,fontSize:14,color:"var(--g)"}}>{c.name}</div>
+            <div style={{fontSize:12,color:"var(--txd)",marginTop:3}}>{c.start_date} → {c.end_date}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return(
+    <div>
+      {/* Campaign header */}
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch">
+          <I n="flag" s={17} c="var(--g)"/>
+          <div style={{flex:1}}><div className="ct">{activeCampaign.name}</div><div className="cs">{activeCampaign.start_date} → {activeCampaign.end_date}</div></div>
+          {campaigns.length>1&&<button className="bs" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>{setActiveCampaign(null);setLoading(false);}}>Switch</button>}
+        </div>
+      </div>
+
+      {/* Clock card */}
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="clock" s={17} c="var(--g)"/><div className="ct">Today's Shift</div></div>
+        <div className="cb">
+          {!clockRow?(
+            <div style={{textAlign:"center",paddingBottom:4}}>
+              <div style={{fontSize:13,color:"var(--txd)",marginBottom:10}}>Not clocked in yet.</div>
+              <button className="bg" onClick={doClockIn} disabled={clockLoading} style={{width:"100%",justifyContent:"center"}}><I n="clock" s={15}/>{clockLoading?"Clocking in...":"Clock In"}</button>
+            </div>
+          ):clockRow.clock_out?(
+            <div style={{background:"rgba(201,168,76,.08)",border:"1px solid rgba(201,168,76,.2)",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{fontSize:13,color:"var(--g)",fontWeight:600}}>✅ Duty complete</div>
+              <div style={{fontSize:12,color:"var(--txd)",marginTop:4}}>In: {fmtTime(clockRow.clock_in)} → Out: {fmtTime(clockRow.clock_out)}</div>
+            </div>
+          ):(
+            <div>
+              <div style={{background:"rgba(46,204,113,.08)",border:"1px solid rgba(46,204,113,.2)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+                <div style={{fontSize:13,color:"var(--gr)",fontWeight:600}}>🟢 On duty since {fmtTime(clockRow.clock_in)}</div>
+              </div>
+              <button onClick={doClockOut} disabled={clockLoading} style={{width:"100%",background:"rgba(231,76,60,.12)",border:"1px solid rgba(231,76,60,.35)",borderRadius:10,padding:"11px",color:"var(--rd)",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <I n="out" s={15}/>{clockLoading?"Clocking out...":"Clock Out"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="sg" style={{marginBottom:12}}>
+        <div className="sc gold"><div className="si gold"><I n="users" s={17}/></div><div className="sv" style={{fontSize:22}}>{visits.length}</div><div className="sl">Doors Today</div></div>
+      </div>
+
+      {/* New visit button */}
+      <button className="bg" onClick={openModal} disabled={!clockRow} style={{width:"100%",justifyContent:"center",marginBottom:clockRow?12:4,fontSize:15,padding:"12px",opacity:!clockRow?0.4:1}}>
+        <I n="plus" s={16}/>New Door Visit
+      </button>
+      {!clockRow&&<div style={{fontSize:12,color:"var(--txd)",textAlign:"center",marginBottom:12}}>Clock in first to record visits.</div>}
+
+      {/* Today's visits list */}
+      {visits.length>0&&(
+        <div className="card">
+          <div className="ch"><I n="map" s={17} c="var(--g)"/><div className="ct">Today's Visits</div><div className="cs">{visits.length} door{visits.length!==1?"s":""}</div></div>
+          <div className="cb">
+            {visits.map(v=>(
+              <div key={v.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid var(--bo)"}}>
+                <div className="av av-green" style={{width:36,height:36,fontSize:13,borderRadius:9,flexShrink:0}}>{(v.customer_name||"?").charAt(0).toUpperCase()}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:13}}>{v.customer_name}</div>
+                  <div style={{fontSize:11,color:"var(--txd)"}}>{fmtTime(v.visit_time)} · {visitItemCounts[v.id]||0} item{(visitItemCounts[v.id]||0)!==1?"s":""}</div>
+                </div>
+                {v.photo_url&&<img src={v.photo_url} style={{width:36,height:36,objectFit:"cover",borderRadius:8,border:"1px solid var(--bo)"}}/>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* New Visit Modal */}
+      {showModal&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">New Door Visit</div><div className="mc" onClick={()=>setShowModal(false)}>×</div></div>
+            <div className="mb">
+
+              {/* GPS */}
+              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+                <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>GPS Location</div>
+                {form.gpsCapturing?(
+                  <div style={{fontSize:13,color:"var(--or)"}}>📡 Capturing GPS...</div>
+                ):form.gps?(
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontSize:12,color:"var(--g)"}}>✅ {form.gps.lat}, {form.gps.lng}</div>
+                    <button className="bs" style={{fontSize:11,padding:"3px 10px"}} onClick={captureGPS}>Retry</button>
+                  </div>
+                ):(
+                  <div>
+                    <div style={{fontSize:12,color:"var(--rd)",marginBottom:6}}>{form.gpsError||"GPS not captured."}</div>
+                    <button className="bg" onClick={captureGPS} style={{fontSize:12,padding:"6px 14px"}}><I n="gps" s={13}/>Retry GPS</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Customer */}
+              <div className="frow">
+                <div className="fg"><label className="fl">Customer Name *</label><input className="fi" value={form.customer_name} onChange={e=>setForm(f=>({...f,customer_name:e.target.value}))} placeholder="Full name"/></div>
+                <div className="fg"><label className="fl">Customer Phone *</label><input className="fi" value={form.customer_phone} onChange={e=>setForm(f=>({...f,customer_phone:e.target.value}))} placeholder="03001234567"/></div>
+              </div>
+
+              {/* Products */}
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Products</div>
+                {form.lines.map((line,idx)=>(
+                  <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 56px 88px 28px",gap:6,marginBottom:6,alignItems:"center"}}>
+                    <select className="fsel" value={line.product_id} onChange={e=>setLine(idx,"product_id",e.target.value)} style={{fontSize:12}}>
+                      <option value="">-- SKU --</option>
+                      {products.map(p=><option key={p.id} value={p.id}>{p.sku} — {p.name}</option>)}
+                    </select>
+                    <input className="fi" type="number" min="1" value={line.qty} onChange={e=>setLine(idx,"qty",e.target.value)} style={{fontSize:12,textAlign:"center"}} placeholder="Qty"/>
+                    <select className="fsel" value={line.type} onChange={e=>setLine(idx,"type",e.target.value)} style={{fontSize:12}}>
+                      <option value="sale">Sale</option>
+                      <option value="sample">Sample</option>
+                      <option value="gift">Gift</option>
+                      <option value="return">Return</option>
+                    </select>
+                    {form.lines.length>1
+                      ?<button onClick={()=>removeLine(idx)} style={{background:"rgba(231,76,60,.15)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,color:"var(--rd)",cursor:"pointer",height:30,width:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,lineHeight:1}}>×</button>
+                      :<div/>}
+                  </div>
+                ))}
+                <button className="bs" onClick={addLine} style={{fontSize:12,padding:"5px 12px",marginTop:2}}><I n="plus" s={12}/>Add another product</button>
+              </div>
+
+              {/* Photo */}
+              <div className="fg" style={{marginBottom:10}}>
+                <label className="fl">Photo (optional)</label>
+                {form.photo_url?(
+                  <div style={{position:"relative",display:"inline-block"}}>
+                    <img src={form.photo_url} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:"1px solid var(--bo)"}}/>
+                    <button onClick={()=>setForm(f=>({...f,photo_url:""}))} style={{position:"absolute",top:-6,right:-6,background:"var(--rd)",border:"none",borderRadius:"50%",width:18,height:18,color:"#fff",fontSize:12,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                ):form.photoUploading?(
+                  <div style={{fontSize:12,color:"var(--or)"}}>Uploading photo...</div>
+                ):(
+                  <label style={{display:"flex",alignItems:"center",justifyContent:"center",height:60,border:"1px dashed var(--bo)",borderRadius:8,cursor:"pointer",fontSize:12,color:"var(--txd)",gap:6}}>
+                    📷 Take / Upload Photo
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+                      const file=e.target.files[0];if(!file)return;
+                      setForm(f=>({...f,photoUploading:true}));
+                      const r=await uploadPhoto(file);
+                      setForm(f=>({...f,photoUploading:false,photo_url:r?r.url:""}));
+                      if(!r)toast("Photo upload failed.");
+                      e.target.value="";
+                    }}/>
+                  </label>
+                )}
+              </div>
+
+              <div className="ma">
+                <button className="bs" onClick={()=>setShowModal(false)}>Cancel</button>
+                <button className="bg" onClick={doSaveVisit} disabled={saving} style={{opacity:saving?0.6:1}}><I n="ok" s={15}/>{saving?"Saving...":"Save Visit"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
   const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");if(!s)return null;const u=JSON.parse(s);if(u&&u.pin!==undefined){const{pin:_,...clean}=u;localStorage.setItem("shinkore_session",JSON.stringify(clean));return clean;}return u;}catch{return null;}};
@@ -4715,6 +5021,7 @@ export default function App(){
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
+        case "dtd-dash": return <DTDDashPage user={user} toast={toast}/>;
         default: return <MyDash user={user} data={data} setPage={setPage}/>;
       }
     }
