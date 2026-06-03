@@ -177,6 +177,7 @@ const I = ({n,s=18,c="currentColor"}) => {
     apk:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/><polyline points="8,7 12,3 16,7"/><line x1="12" y1="3" x2="12" y2="13"/></svg>,
     map:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><polygon points="1,6 1,22 8,18 16,22 23,18 23,2 16,6 8,2"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
     user:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+    box:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27,6.96 12,12.01 20.73,6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
   };
   return m[n]||null;
 };
@@ -256,6 +257,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"daily_plan",icon:"cal",label:"Daily Plans"},
     {id:"training",icon:"users",label:"Training"},
     {id:"clients",icon:"users",label:"Clients"},
+    {id:"products",icon:"box",label:"Products"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"documents",icon:"pdf",label:"Document History"},
@@ -4205,6 +4207,194 @@ function Soon({title}){
   );
 }
 
+// ─── PRODUCTS PAGE ────────────────────────────────────────────────────────────
+function ProductsPage({data,toast}){
+  const [products,setProducts]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [show,setShow]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [filterClient,setFilterClient]=useState("");
+  const [showCSV,setShowCSV]=useState(false);
+  const [csvClient,setCsvClient]=useState("");
+  const [csvRows,setCsvRows]=useState([]);
+  const [csvSkipped,setCsvSkipped]=useState(0);
+  const emptyF={client_id:"",name:"",sku:"",unit_price:""};
+  const [f,setF]=useState(emptyF);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    SB.from("sm_products").select("*").order("created_at",{ascending:false})
+      .then(({data:rows})=>{setProducts(rows||[]);setLoading(false);});
+  },[]);
+
+  const doSave=async()=>{
+    if(!f.client_id||!f.name||!f.sku) return toast("Client, name and SKU required.");
+    const skuLower=f.sku.trim().toLowerCase();
+    const dup=products.find(p=>p.client_id===f.client_id&&p.sku.toLowerCase()===skuLower&&(!editing||p.id!==editing.id));
+    if(dup) return toast(`SKU "${f.sku.trim()}" already exists for this client.`);
+    const row={id:editing?editing.id:crypto.randomUUID(),client_id:f.client_id,name:f.name.trim(),sku:f.sku.trim(),unit_price:Number(f.unit_price)||0};
+    const{error}=await SB.from("sm_products").upsert([row],{onConflict:"id"});
+    if(error) return toast("Save failed: "+error.message);
+    setProducts(p=>editing?p.map(x=>x.id===editing.id?row:x):[row,...p]);
+    setShow(false);toast(editing?"Product updated!":"Product added!");
+  };
+
+  const doDel=async(prod)=>{
+    if(!confirm(`Delete "${prod.name}"?`)) return;
+    const{error}=await SB.from("sm_products").delete().eq("id",prod.id);
+    if(error) return toast("Delete failed.");
+    setProducts(p=>p.filter(x=>x.id!==prod.id));
+    toast("Removed.");
+  };
+
+  const parseCSV=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const lines=ev.target.result.split("\n").map(l=>l.trim()).filter(Boolean);
+      const start=/^name/i.test(lines[0])?1:0;
+      const all=lines.slice(start).map(line=>{
+        const parts=line.split(",").map(s=>s.trim().replace(/^"|"$/g,""));
+        const priceRaw=parts[2]||"";
+        const price=priceRaw===""?0:Number(priceRaw);
+        return{name:parts[0]||"",sku:parts[1]||"",unit_price:price,_bad:!parts[0]||!parts[1]||isNaN(price)};
+      });
+      const valid=all.filter(r=>!r._bad).map(({_bad,...r})=>r);
+      setCsvRows(valid);
+      setCsvSkipped(all.length-valid.length);
+    };
+    reader.readAsText(file);
+  };
+
+  const doImportCSV=async()=>{
+    if(!csvClient) return toast("Select a client first.");
+    if(csvRows.length===0) return toast("No valid rows found in CSV.");
+    const existingSKUs=new Set(products.filter(p=>p.client_id===csvClient).map(p=>p.sku.toLowerCase()));
+    const newRows=csvRows.filter(r=>!existingSKUs.has(r.sku.toLowerCase()));
+    const dupCount=csvRows.length-newRows.length;
+    if(newRows.length===0) return toast("All SKUs already exist for this client — nothing imported.");
+    const rows=newRows.map(r=>({id:crypto.randomUUID(),client_id:csvClient,name:r.name,sku:r.sku,unit_price:r.unit_price}));
+    const{error}=await SB.from("sm_products").insert(rows);
+    if(error) return toast("Import failed: "+error.message);
+    setProducts(p=>[...rows,...p]);
+    setShowCSV(false);setCsvRows([]);setCsvClient("");setCsvSkipped(0);
+    const note=[rows.length+" imported",dupCount>0?dupCount+" duplicate SKUs skipped":"",csvSkipped>0?csvSkipped+" bad rows skipped":""].filter(Boolean).join(", ");
+    toast(note+"!");
+  };
+
+  const filtered=filterClient?products.filter(p=>p.client_id===filterClient):products;
+  const clientName=(id)=>(data.clients||[]).find(c=>c.id===id)?.name||"—";
+
+  return(
+    <div>
+      <div className="card">
+        <div className="ch">
+          <I n="box" s={17} c="var(--g)"/>
+          <div style={{flex:1}}><div className="ct">Products</div><div className="cs">{filtered.length} of {products.length}</div></div>
+          <button className="brd" style={{marginRight:8}} onClick={()=>{setCsvRows([]);setCsvClient("");setCsvSkipped(0);setShowCSV(true);}}>⬆ CSV</button>
+          <button className="bg" onClick={()=>{setEditing(null);setF(emptyF);setShow(true);}}><I n="plus" s={15}/>Add Product</button>
+        </div>
+        <div style={{padding:"0 16px 12px",display:"flex",gap:8,alignItems:"center"}}>
+          <select className="fsel" style={{flex:1}} value={filterClient} onChange={e=>setFilterClient(e.target.value)}>
+            <option value="">All Clients ({products.length})</option>
+            {(data.clients||[]).map(c=>{const cnt=products.filter(p=>p.client_id===c.id).length;return<option key={c.id} value={c.id}>{c.name} — {cnt} products</option>;})}
+          </select>
+          {filterClient&&<button className="brd" onClick={()=>setFilterClient("")} style={{fontSize:11,padding:"6px 10px",whiteSpace:"nowrap"}}>✕ Clear</button>}
+        </div>
+        <div className="cb">
+          {loading&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading products…</div>}
+          {!loading&&filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>No products yet. Add one or import from CSV.</div>}
+          {!loading&&filtered.length>0&&(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:"2px solid var(--bo)"}}>
+                    <th style={{textAlign:"left",padding:"6px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>Client</th>
+                    <th style={{textAlign:"left",padding:"6px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>Product Name</th>
+                    <th style={{textAlign:"left",padding:"6px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>SKU</th>
+                    <th style={{textAlign:"right",padding:"6px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>Unit Price</th>
+                    <th style={{width:72}}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(p=>(
+                    <tr key={p.id} style={{borderBottom:"1px solid var(--bo)"}}>
+                      <td style={{padding:"9px 10px",fontSize:12,color:"var(--bl)"}}>{clientName(p.client_id)}</td>
+                      <td style={{padding:"9px 10px",fontWeight:600}}>{p.name}</td>
+                      <td style={{padding:"9px 10px",fontFamily:"monospace",fontSize:12,color:"var(--txd)",letterSpacing:.5}}>{p.sku}</td>
+                      <td style={{padding:"9px 10px",textAlign:"right",color:"var(--g)",fontFamily:"Rajdhani",fontSize:15,fontWeight:700}}>{formatPKR(p.unit_price)}</td>
+                      <td style={{padding:"9px 10px"}}>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                          <button className="bic" onClick={()=>{setEditing(p);setF({client_id:p.client_id,name:p.name,sku:p.sku,unit_price:p.unit_price});setShow(true);}}><I n="edit" s={13}/></button>
+                          <button className="brd" onClick={()=>doDel(p)} style={{padding:"4px 8px",fontSize:11}}><I n="del" s={13}/></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">{editing?"Edit Product":"Add Product"}</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
+            <div className="mb">
+              <div className="fg"><label className="fl">Client</label>
+                <select className="fsel" value={f.client_id} onChange={e=>set("client_id",e.target.value)}>
+                  <option value="">— Select Client —</option>
+                  {(data.clients||[]).map(c=><option key={c.id} value={c.id}>{c.name} ({c.brand})</option>)}
+                </select>
+              </div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Product Name</label><input className="fi" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. Brite 500g"/></div>
+                <div className="fg"><label className="fl">SKU</label><input className="fi" value={f.sku} onChange={e=>set("sku",e.target.value)} placeholder="e.g. BRT-500G"/></div>
+              </div>
+              <div className="fg"><label className="fl">Unit Price (PKR)</label><input className="fi" type="number" min="0" step="0.01" value={f.unit_price} onChange={e=>set("unit_price",e.target.value)} placeholder="0"/></div>
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save Changes":"Add Product"}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCSV&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShowCSV(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">Import Products from CSV</div><div className="mc" onClick={()=>setShowCSV(false)}>×</div></div>
+            <div className="mb">
+              <div className="info info-blue" style={{marginBottom:12}}><I n="alert" s={14}/><div>Columns (in order): <strong>name, sku, unit_price</strong>. Header row is auto-detected and skipped.</div></div>
+              <div className="fg"><label className="fl">Assign all rows to client</label>
+                <select className="fsel" value={csvClient} onChange={e=>setCsvClient(e.target.value)}>
+                  <option value="">— Select Client —</option>
+                  {(data.clients||[]).map(c=><option key={c.id} value={c.id}>{c.name} ({c.brand})</option>)}
+                </select>
+              </div>
+              <div className="fg"><label className="fl">CSV File</label>
+                <input type="file" accept=".csv,text/csv" onChange={parseCSV} style={{display:"block",padding:"8px 0",color:"var(--tx)",fontSize:13}}/>
+              </div>
+              {csvRows.length>0&&<div style={{background:"rgba(46,204,113,.1)",border:"1px solid rgba(46,204,113,.3)",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:8,color:"var(--g)"}}>
+                ✅ {csvRows.length} rows ready — {csvRows.slice(0,3).map(r=>r.name).join(", ")}{csvRows.length>3?" …":""}
+              </div>}
+              {csvSkipped>0&&<div style={{background:"rgba(240,165,0,.1)",border:"1px solid rgba(240,165,0,.3)",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:8,color:"var(--or)"}}>
+                ⚠️ {csvSkipped} row{csvSkipped>1?"s":""} skipped — missing name/SKU or non-numeric price.
+              </div>}
+              <div className="ma">
+                <button className="bs" onClick={()=>setShowCSV(false)}>Cancel</button>
+                <button className="bg" onClick={doImportCSV} disabled={!csvClient||csvRows.length===0} style={{opacity:(!csvClient||csvRows.length===0)?0.5:1}}>
+                  <I n="ok" s={15}/>Import {csvRows.length>0?csvRows.length+" Products":""}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App(){
   const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");if(!s)return null;const u=JSON.parse(s);if(u&&u.pin!==undefined){const{pin:_,...clean}=u;localStorage.setItem("shinkore_session",JSON.stringify(clean));return clean;}return u;}catch{return null;}};
@@ -4267,7 +4457,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -4287,6 +4477,7 @@ export default function App(){
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "products": return <ProductsPage data={data} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
         case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
         case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
