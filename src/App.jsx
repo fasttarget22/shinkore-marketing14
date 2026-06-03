@@ -50,6 +50,21 @@ const sendDailySummary=(data)=>{
 const IMGBB_KEY=import.meta.env.VITE_IMGBB_KEY;
 const uploadPhoto=async(file)=>{const fd=new FormData();fd.append("image",file);fd.append("key",IMGBB_KEY);try{const r=await fetch("https://api.imgbb.com/1/upload",{method:"POST",body:fd});const d=await r.json();if(d.success)return{url:d.data.url,thumb:d.data.thumb.url};return null;}catch{return null;}};
 
+const getClientSettings=(client)=>{
+  const s=client?.settings||{};
+  return{
+    stall_enabled:  s.stall_enabled  ??true,
+    dtd_enabled:    s.dtd_enabled    ??true,
+    sop_required:   s.sop_required   ??false,
+    gps_required:   s.gps_required   ??false,
+    activities:{
+      sampling: s.activities?.sampling??true,
+      gifting:  s.activities?.gifting ??true,
+      sales:    s.activities?.sales   ??true,
+    }
+  };
+};
+
 // ─── DATA INIT ────────────────────────────────────────────────────────────────
 const initData = () => {
   const d = localStorage.getItem("shinkore_v2");
@@ -258,6 +273,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"daily_plan",icon:"cal",label:"Daily Plans"},
     {id:"training",icon:"users",label:"Training"},
     {id:"clients",icon:"users",label:"Clients"},
+    {id:"control-panel",icon:"set",label:"Control Panel"},
     {id:"products",icon:"box",label:"Products"},
     {id:"campaigns",icon:"flag",label:"Campaigns"},
     {id:"sops",icon:"pdf",label:"SOP Manager"},
@@ -979,17 +995,24 @@ function StallsPage({data,setData,toast}){
               </div>
 
               {/* Activity Types */}
-              <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-                <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:10}}>🎯 Activity Types</div>
-                <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-                  {[{val:"sampling",label:"Sampling"},{val:"gifting",label:"Gifting"},{val:"sales",label:"Sales"}].map(act=>(
-                    <label key={act.val} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",fontSize:13}}>
-                      <input type="checkbox" checked={(f.activities||[]).includes(act.val)} onChange={e=>toggleActivity(act.val,e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"var(--g)"}}/>
-                      {act.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              {(()=>{
+                const mc=(data.clients||[]).find(c=>(c.name||"").toLowerCase()===f.client.toLowerCase()||(c.brand||"").toLowerCase()===f.client.toLowerCase());
+                const cs=getClientSettings(mc);
+                const allowed=[{val:"sampling",label:"Sampling"},{val:"gifting",label:"Gifting"},{val:"sales",label:"Sales"}].filter(a=>cs.activities[a.val]);
+                return allowed.length>0?(
+                  <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                    <div style={{fontSize:12,color:"var(--g)",fontWeight:600,marginBottom:10}}>🎯 Activity Types</div>
+                    <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                      {allowed.map(act=>(
+                        <label key={act.val} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",fontSize:13}}>
+                          <input type="checkbox" checked={(f.activities||[]).includes(act.val)} onChange={e=>toggleActivity(act.val,e.target.checked)} style={{width:15,height:15,cursor:"pointer",accentColor:"var(--g)"}}/>
+                          {act.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ):null;
+              })()}
 
               <div className="frow">
                 <div className="fg"><label className="fl">Permission From</label><input className="fi" type="date" value={f.from_date} onChange={e=>set("from_date",e.target.value)}/></div>
@@ -4516,7 +4539,8 @@ function CampaignsPage({data,toast}){
                   </div>
                 </div>
               )}
-              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save Changes":"Create Campaign"}</button></div>
+              {(()=>{const sc=(data.clients||[]).find(c=>c.id===f.client_id);const dtdOk=!sc||getClientSettings(sc).dtd_enabled;return !dtdOk?(<div className="info info-warn" style={{marginBottom:10}}><I n="alert" s={13}/>DTD is disabled for this client. Enable it in Control Panel first.</div>):null;})()}
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave} disabled={(()=>{const sc=(data.clients||[]).find(c=>c.id===f.client_id);return sc&&!getClientSettings(sc).dtd_enabled;})()} style={{opacity:(()=>{const sc=(data.clients||[]).find(c=>c.id===f.client_id);return sc&&!getClientSettings(sc).dtd_enabled?0.4:1;})()}}><I n="ok" s={15}/>{editing?"Save Changes":"Create Campaign"}</button></div>
             </div>
           </div>
         </div>
@@ -4713,6 +4737,76 @@ function ProductsPage({data,toast}){
   );
 }
 
+// ─── CLIENT CONTROL PANEL ─────────────────────────────────────────────────────
+function ClientControlPanelPage({data,setData,toast}){
+  const clients=data.clients||[];
+
+  const saveSettings=async(client,newSettings)=>{
+    const updated=clients.map(c=>c.id===client.id?{...c,settings:newSettings}:c);
+    const newData={...data,clients:updated};
+    setData(newData);
+    localStorage.setItem("shinkore_v2",JSON.stringify(newData));
+    // Upsert (not update) so the row is created in sm_clients if it doesn't exist yet
+    const row={id:client.id,name:client.name||"",brand:client.brand||"",phone:client.phone||"",email:client.email||"",pin:client.pin||"",active:client.active!==false,settings:newSettings};
+    const{error}=await SB.from("sm_clients").upsert([row],{onConflict:"id"});
+    if(error) toast("Save failed: "+error.message);
+  };
+
+  const toggle=(client,path,value)=>{
+    const cs=getClientSettings(client);
+    let ns={...cs};
+    if(path==="activities.sampling") ns={...ns,activities:{...ns.activities,sampling:value}};
+    else if(path==="activities.gifting") ns={...ns,activities:{...ns.activities,gifting:value}};
+    else if(path==="activities.sales") ns={...ns,activities:{...ns.activities,sales:value}};
+    else ns={...ns,[path]:value};
+    saveSettings(client,ns);
+  };
+
+  const Row=({label,val,onToggle})=>(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid var(--bo)"}}>
+      <span style={{fontSize:13}}>{label}</span>
+      <button onClick={()=>onToggle(!val)} style={{padding:"4px 14px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,background:val?"var(--g)":"rgba(255,255,255,.08)",color:val?"#000":"var(--txd)",minWidth:52}}>
+        {val?"ON":"OFF"}
+      </button>
+    </div>
+  );
+
+  if(clients.length===0) return(
+    <div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>No clients yet. Add them in the Clients page first.</div></div>
+  );
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ch"><I n="set" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Client Control Panel</div><div className="cs">Configure what each client's staff can do</div></div></div>
+      </div>
+      {clients.map(client=>{
+        const cs=getClientSettings(client);
+        return(
+          <div key={client.id} className="card" style={{marginBottom:12}}>
+            <div className="ch">
+              <div className="av av-green" style={{width:36,height:36,fontSize:13,borderRadius:9,flexShrink:0}}>{(client.name||"?").charAt(0).toUpperCase()}</div>
+              <div style={{flex:1}}><div className="ct">{client.name}</div><div className="cs">{client.brand||"No brand"}</div></div>
+            </div>
+            <div className="cb">
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Work Types</div>
+              <Row label="Stall work enabled"   val={cs.stall_enabled} onToggle={v=>toggle(client,"stall_enabled",v)}/>
+              <Row label="Door-to-door (DTD) enabled" val={cs.dtd_enabled} onToggle={v=>toggle(client,"dtd_enabled",v)}/>
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginTop:12,marginBottom:4}}>Activities Allowed</div>
+              <Row label="Sampling" val={cs.activities.sampling} onToggle={v=>toggle(client,"activities.sampling",v)}/>
+              <Row label="Gifting"  val={cs.activities.gifting}  onToggle={v=>toggle(client,"activities.gifting",v)}/>
+              <Row label="Sales"    val={cs.activities.sales}    onToggle={v=>toggle(client,"activities.sales",v)}/>
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginTop:12,marginBottom:4}}>Requirements</div>
+              <Row label="SOP checklist required at door visits" val={cs.sop_required} onToggle={v=>toggle(client,"sop_required",v)}/>
+              <Row label="GPS capture required at door visits"   val={cs.gps_required} onToggle={v=>toggle(client,"gps_required",v)}/>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── SOP MANAGER ──────────────────────────────────────────────────────────────
 function SOPManagerPage({data,toast}){
   const [clientId,setClientId]=useState("");
@@ -4818,6 +4912,7 @@ function DTDDashPage({user,toast}){
   const [saving,setSaving]=useState(false);
   const [clientSop,setClientSop]=useState(null);
   const [sopChecks,setSopChecks]=useState({});
+  const [clientSettings,setClientSettings]=useState(getClientSettings(null));
 
   const emptyForm=()=>({customer_name:"",customer_phone:"",photo_url:"",photoUploading:false,gps:null,gpsCapturing:false,gpsError:"",lines:[{product_id:"",sku:"",product_name:"",qty:1,type:"sale"}]});
   const [form,setForm]=useState(emptyForm());
@@ -4837,9 +4932,11 @@ function DTDDashPage({user,toast}){
     Promise.all([
       SB.from("sm_products").select("*").eq("client_id",c.client_id),
       SB.from("sm_dtd_clock").select("*").eq("ba_id",user.id).eq("campaign_id",c.id).eq("work_date",today).limit(1),
-      SB.from("sm_door_visits").select("*").eq("ba_id",user.id).eq("campaign_id",c.id)
-    ]).then(([{data:prods},{data:clocks},{data:allVisits}])=>{
+      SB.from("sm_door_visits").select("*").eq("ba_id",user.id).eq("campaign_id",c.id),
+      SB.from("sm_clients").select("id,settings").eq("id",c.client_id).limit(1)
+    ]).then(([{data:prods},{data:clocks},{data:allVisits},{data:cRows}])=>{
       setProducts(prods||[]);
+      setClientSettings(getClientSettings((cRows&&cRows[0])||null));
       setClockRow((clocks&&clocks[0])||null);
       const todayV=(allVisits||[]).filter(v=>v.visit_time&&v.visit_time.startsWith(today));
       setVisits(todayV);
@@ -4902,13 +4999,13 @@ function DTDDashPage({user,toast}){
   const removeLine=(idx)=>setForm(f=>({...f,lines:f.lines.filter((_,i)=>i!==idx)}));
 
   const doSaveVisit=async()=>{
-    if(!form.gps){toast("GPS not captured yet.");return;}
+    if(clientSettings.gps_required&&!form.gps){toast("GPS required for this client — capture location first.");return;}
     if(!form.customer_name.trim()){toast("Customer name required.");return;}
     if(!form.customer_phone.trim()){toast("Customer phone required.");return;}
     const validLines=form.lines.filter(l=>l.product_id);
     if(validLines.length===0){toast("Add at least one product.");return;}
     if(validLines.some(l=>Number(l.qty)<1)){toast("Qty must be at least 1.");return;}
-    if(clientSop){
+    if(clientSop&&clientSettings.sop_required){
       const missing=(clientSop.checklist||[]).filter(item=>item.required&&!sopChecks[item.id]);
       if(missing.length>0){toast(`Required: "${missing[0].text}" must be ticked.`);return;}
     }
@@ -5055,7 +5152,7 @@ function DTDDashPage({user,toast}){
 
               {/* GPS */}
               <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
-                <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>GPS Location</div>
+                <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>GPS Location{clientSettings.gps_required?<span style={{color:"var(--rd)",marginLeft:4}}>*</span>:<span style={{color:"var(--txd)",fontSize:10,marginLeft:4}}>(optional)</span>}</div>
                 {form.gpsCapturing?(
                   <div style={{fontSize:13,color:"var(--or)"}}>📡 Capturing GPS...</div>
                 ):form.gps?(
@@ -5088,9 +5185,9 @@ function DTDDashPage({user,toast}){
                     </select>
                     <input className="fi" type="number" min="1" value={line.qty} onChange={e=>setLine(idx,"qty",e.target.value)} style={{fontSize:12,textAlign:"center"}} placeholder="Qty"/>
                     <select className="fsel" value={line.type} onChange={e=>setLine(idx,"type",e.target.value)} style={{fontSize:12}}>
-                      <option value="sale">Sale</option>
-                      <option value="sample">Sample</option>
-                      <option value="gift">Gift</option>
+                      {clientSettings.activities.sales    &&<option value="sale">Sale</option>}
+                      {clientSettings.activities.sampling &&<option value="sample">Sample</option>}
+                      {clientSettings.activities.gifting  &&<option value="gift">Gift</option>}
                       <option value="return">Return</option>
                     </select>
                     {form.lines.length>1
@@ -5220,6 +5317,7 @@ export default function App(){
         case "activity": return <ActivityPage user={user} data={data} setData={setData} toast={toast}/>;
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
+        case "control-panel": return <ClientControlPanelPage data={data} setData={setData} toast={toast}/>;
         case "products": return <ProductsPage data={data} toast={toast}/>;
         case "campaigns": return <CampaignsPage data={data} toast={toast}/>;
         case "sops": return <SOPManagerPage data={data} toast={toast}/>;
