@@ -785,10 +785,10 @@ function StallsPage({data,setData,toast}){
   const openEdit=(s)=>{setEditing(s);setF({...emptyF,...s});setShow(true)};
 
   const doSave=()=>{
-    if(!f.name||!f.city||!f.lat||!f.lng) return toast("Name, city and GPS required.");
+    if(!f.name||!f.city) return toast("Name and city required.");
     const{tc,tx,profit}=calc(f);
     const sid=editing?editing.id:genId();
-    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0};
+    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0,lat:f.lat?Number(f.lat):null,lng:f.lng?Number(f.lng):null};
     const d={...data};
     if(editing) d.stalls=d.stalls.map(s=>s.id===editing.id?{...s,...sd}:s);
     else{
@@ -834,7 +834,7 @@ function StallsPage({data,setData,toast}){
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Charged</div><div style={{fontSize:13,fontWeight:600,color:"var(--g)"}}>{formatPKR(s.client_charged)}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:13,fontWeight:600,color:s.lat&&s.lng?"var(--g)":"var(--rd)"}}>{s.lat&&s.lng?"🎯 Verified":"❌ Not Set"}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Duty Start</div><div style={{fontSize:13,fontWeight:600}}>{s.duty_start}</div></div>
-                  <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:12,color:"var(--bl)"}}>{Number(s.lat).toFixed(4)}, {Number(s.lng).toFixed(4)}</div></div>
+                  {s.lat&&s.lng&&<div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Coordinates</div><div style={{fontSize:12,color:"var(--bl)"}}>{Number(s.lat).toFixed(4)}, {Number(s.lng).toFixed(4)}</div></div>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                   <span style={{fontSize:12,color:"var(--txd)"}}>Assigned:</span>
