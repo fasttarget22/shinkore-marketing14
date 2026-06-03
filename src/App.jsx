@@ -20,6 +20,8 @@ const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocati
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
 console.log("[DEBUG] Admin pass:", import.meta.env.VITE_ADMIN_PASSWORD ? "loaded, length=" + import.meta.env.VITE_ADMIN_PASSWORD.length : "UNDEFINED - env var not reaching build");
+const hashPIN=async(pin)=>{const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(pin)));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");};
+const isHashed=(pin)=>typeof pin==="string"&&/^[0-9a-f]{64}$/.test(pin);
 const COMPANY = "Shinkore Marketing";
 const ADMIN_PHONES = (import.meta.env.VITE_ADMIN_PHONES||"").split(",").filter(Boolean);
 const GPS_RADIUS_M = 200;
@@ -193,7 +195,7 @@ function Login({onLogin}){
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const data=initData();
 
-  const doIn=()=>{
+  const doIn=async()=>{
     setErr("");
     const u=(data.users||[]).find(x=>x.phone===f.phone);
     const cl=(data.clients||[]).find(x=>x.phone===f.phone);
@@ -204,7 +206,17 @@ function Login({onLogin}){
     }
     if(!u) return setErr("Phone not found. Ask admin to register you.");
     if(u.role==="admin"&&f.pass!==ADMIN_PASSWORD) return setErr("Wrong admin password.");
-    if(u.role!=="admin"&&(!u.pin||!u.pin.trim()||f.pass!==u.pin.trim())) return setErr("Wrong PIN. Contact admin if forgotten.");
+    if(u.role!=="admin"){
+      if(!u.pin||!u.pin.trim()) return setErr("Wrong PIN. Contact admin if forgotten.");
+      if(isHashed(u.pin)){
+        const h=await hashPIN(f.pass.trim());
+        if(h!==u.pin) return setErr("Wrong PIN. Contact admin if forgotten.");
+      } else {
+        if(f.pass.trim()!==u.pin.trim()) return setErr("Wrong PIN. Contact admin if forgotten.");
+        const h=await hashPIN(f.pass.trim());
+        const d=initData();d.users=d.users.map(x=>x.id===u.id?{...x,pin:h}:x);save(d);
+      }
+    }
     onLogin(u);
   };
 
@@ -547,11 +559,12 @@ function StaffPage({data,setData,toast}){
   const openAdd=()=>{setEditing(null);setF({name:"",phone:"",role:"ba",daily_rate:"",team:"",callmebot_key:""});setShow(true)};
   const [showBulk,setShowBulk]=useState(false);
   const [bulkText,setBulkText]=useState("");
-  const doBulkImport=()=>{
+  const doBulkImport=async()=>{
     var lines=bulkText.split("\n").map(function(l){return l.trim();}).filter(Boolean);
     if(lines.length===0){toast("Paste some names and numbers first.");return;}
     var existingPhones={};
     (data.users||[]).forEach(function(u){if(u.phone)existingPhones[u.phone.replace(/[^0-9]/g,"")]=true;});
+    const pinHash=await hashPIN("1234");
     var newUsers=[];var added=0,skipped=0;
     lines.forEach(function(line){
       // Skip header-like lines
@@ -564,7 +577,7 @@ function StaffPage({data,setData,toast}){
       var digits=phone.replace(/[^0-9]/g,"");
       if(digits&&existingPhones[digits]){skipped++;return;}
       if(digits)existingPhones[digits]=true;
-      newUsers.push({id:genId(),name:name,phone:phone||"",role:"ba",daily_rate:0,team:"",callmebot_key:"",pin:"1234",paid_by:"admin"});
+      newUsers.push({id:genId(),name:name,phone:phone||"",role:"ba",daily_rate:0,team:"",callmebot_key:"",pin:pinHash,paid_by:"admin"});
       added++;
     });
     if(added===0){toast("Nothing new to add (all duplicates or empty).");return;}
@@ -574,13 +587,16 @@ function StaffPage({data,setData,toast}){
   };
   const openEdit=(u)=>{setEditing(u);setF({name:u.name,phone:u.phone,role:u.role,daily_rate:u.daily_rate,team:u.team||"",callmebot_key:u.callmebot_key||"",paid_by:u.paid_by||"admin",pin:u.pin||"",sup_id:u.sup_id||"",cnic:u.cnic||"",cnic_front:u.cnic_front||"",cnic_back:u.cnic_back||"",photo:u.photo||"",address:u.address||"",emergency_name:u.emergency_name||"",emergency_phone:u.emergency_phone||"",join_date:u.join_date||"",bank_account:u.bank_account||"",blood_group:u.blood_group||"",hr_notes:u.hr_notes||""});setShow(true)};
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!f.name||!f.phone) return;
     const d={...data};
-    if(editing) d.users=d.users.map(u=>u.id===editing.id?{...u,...f,daily_rate:Number(f.daily_rate)}:u);
-    else{
+    if(editing){
+      const pinVal=!f.pin?(editing.pin||""):isHashed(f.pin)?f.pin:await hashPIN(f.pin);
+      d.users=d.users.map(u=>u.id===editing.id?{...u,...f,daily_rate:Number(f.daily_rate),pin:pinVal}:u);
+    } else {
       if(d.users.find(u=>u.phone===f.phone)){toast("Phone exists!");return;}
-      d.users.push({id:genId(),...f,daily_rate:Number(f.daily_rate)});
+      const pinVal=f.pin?await hashPIN(f.pin):"";
+      d.users.push({id:genId(),...f,daily_rate:Number(f.daily_rate),pin:pinVal});
     }
     setData(d);save(d);setShow(false);toast(editing?"Updated!":"Staff added!");
   };
@@ -637,8 +653,8 @@ function StaffPage({data,setData,toast}){
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12,background:"var(--d3)",borderRadius:8,padding:"6px 10px"}}>
                   <span style={{fontSize:11,color:"var(--txd)"}}>🔑 Login PIN:</span>
-                  <span style={{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:1}}>{u.pin||"— not set —"}</span>
-                  {u.pin&&<button onClick={()=>{navigator.clipboard.writeText(u.pin);toast("PIN copied!");}} style={{marginLeft:"auto",fontSize:10,background:"transparent",border:"1px solid var(--bo)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"var(--txd)"}}>Copy</button>}
+                  <span style={{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:1}}>{isHashed(u.pin)?"●●●● (secured)":u.pin||"— not set —"}</span>
+                  {u.pin&&!isHashed(u.pin)&&<button onClick={()=>{navigator.clipboard.writeText(u.pin);toast("PIN copied!");}} style={{marginLeft:"auto",fontSize:10,background:"transparent",border:"1px solid var(--bo)",borderRadius:5,padding:"2px 8px",cursor:"pointer",color:"var(--txd)"}}>Copy</button>}
                 </div>
                 <div style={{display:"flex",gap:8,paddingTop:12,borderTop:"1px solid var(--bo)"}}>
                   <button className="bic" onClick={()=>openEdit(u)}><I n="edit" s={14}/></button>
@@ -988,7 +1004,7 @@ function AllocPage({data,setData,toast}){
         "📅 *From:* "+f.from_date+"\n\n"+
         "📱 *App Login:*\n"+
         "Phone: "+allocUser.phone+"\n"+
-        "PIN: "+(allocUser.pin||"1234")+"\n\n"+
+        "PIN: "+(isHashed(allocUser.pin)?"(ask admin)":allocUser.pin||"1234")+"\n\n"+
         "App Link: https://shinkore-marketing14.pages.dev\n\n"+
         "Mehnat aur imandari se kaam karein.\n— Khalid Orakzai, CEO";
       sendWA(allocUser.phone,msg);
