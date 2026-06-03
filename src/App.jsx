@@ -774,7 +774,7 @@ function StaffPage({data,setData,toast}){
 function StallsPage({data,setData,toast}){
   const [show,setShow]=useState(false);
   const [editing,setEditing]=useState(null);
-  const emptyF={name:"",city:"",dept:"",focal_name:"",focal_mob:"",lat:"",lng:"",from_date:"",to_date:"",num_days:"",client:"",duty_start:"09:00",perm_cost:"",perm_charged:"",ba_cost:"",ba_charged:"",sup_cost:"",sup_charged:"",other_cost:"",other_charged:"",notes:""};
+  const emptyF={name:"",city:"",dept:"",focal_name:"",focal_mob:"",latitude:"",longitude:"",from_date:"",to_date:"",num_days:"",client:"",duty_start:"09:00",perm_cost:"",perm_charged:"",ba_cost:"",ba_charged:"",sup_cost:"",sup_charged:"",other_cost:"",other_charged:"",notes:""};
   const [f,setF]=useState(emptyF);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const calc=(fm)=>{const d=Number(fm.num_days)||1;const tc=(Number(fm.perm_charged)||0)+(Number(fm.ba_charged)||0)*d+(Number(fm.sup_charged)||0)*d+(Number(fm.other_charged)||0);const tx=(Number(fm.perm_cost)||0)+(Number(fm.ba_cost)||0)*d+(Number(fm.sup_cost)||0)*d+(Number(fm.other_cost)||0);return{tc,tx,profit:tc-tx};};
@@ -787,8 +787,8 @@ function StallsPage({data,setData,toast}){
     setGpsAccuracy(null);
     navigator.geolocation.getCurrentPosition(p=>{
       const acc=Math.round(p.coords.accuracy);
-      set("lat",p.coords.latitude.toFixed(6));
-      set("lng",p.coords.longitude.toFixed(6));
+      set("latitude",p.coords.latitude.toFixed(6));
+      set("longitude",p.coords.longitude.toFixed(6));
       setGpsAccuracy(acc);
       setGpsCapturing(false);
       if(acc<=20) toast("✅ Excellent GPS! Accuracy: "+acc+"m");
@@ -808,7 +808,7 @@ function StallsPage({data,setData,toast}){
     if(!f.name||!f.city) return toast("Name and city required.");
     const{tc,tx,profit}=calc(f);
     const sid=editing?editing.id:genId();
-    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0,lat:f.lat?Number(f.lat):null,lng:f.lng?Number(f.lng):null};
+    const sd={...f,id:sid,num_days:Number(f.num_days)||0,client_charged:tc,total_cost:tx,profit,perm_cost:Number(f.perm_cost)||0,perm_charged:Number(f.perm_charged)||0,ba_cost:Number(f.ba_cost)||0,ba_charged:Number(f.ba_charged)||0,sup_cost:Number(f.sup_cost)||0,sup_charged:Number(f.sup_charged)||0,other_cost:Number(f.other_cost)||0,other_charged:Number(f.other_charged)||0,latitude:f.latitude?Number(f.latitude):null,longitude:f.longitude?Number(f.longitude):null};
     const d={...data};
     if(editing) d.stalls=d.stalls.map(s=>s.id===editing.id?{...s,...sd}:s);
     else{
@@ -852,9 +852,9 @@ function StallsPage({data,setData,toast}){
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:12}}>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Client</div><div style={{fontSize:13,fontWeight:600}}>{s.client||"—"}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Charged</div><div style={{fontSize:13,fontWeight:600,color:"var(--g)"}}>{formatPKR(s.client_charged)}</div></div>
-                  <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:13,fontWeight:600,color:s.lat&&s.lng?"var(--g)":"var(--rd)"}}>{s.lat&&s.lng?"🎯 Verified":"❌ Not Set"}</div></div>
+                  <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>GPS</div><div style={{fontSize:13,fontWeight:600,color:s.latitude&&s.longitude?"var(--g)":"var(--rd)"}}>{s.latitude&&s.longitude?"🎯 Verified":"❌ Not Set"}</div></div>
                   <div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Duty Start</div><div style={{fontSize:13,fontWeight:600}}>{s.duty_start}</div></div>
-                  {s.lat&&s.lng&&<div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Coordinates</div><div style={{fontSize:12,color:"var(--bl)"}}>{Number(s.lat).toFixed(4)}, {Number(s.lng).toFixed(4)}</div></div>}
+                  {s.latitude&&s.longitude&&<div><div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:1}}>Coordinates</div><div style={{fontSize:12,color:"var(--bl)"}}>{Number(s.latitude).toFixed(4)}, {Number(s.longitude).toFixed(4)}</div></div>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                   <span style={{fontSize:12,color:"var(--txd)"}}>Assigned:</span>
@@ -893,8 +893,8 @@ function StallsPage({data,setData,toast}){
               </div>
               <div className="fg"><label className="fl">GPS Coordinates</label>
                 <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <input className="fi" placeholder="Latitude" value={f.lat} onChange={e=>set("lat",e.target.value)} style={{flex:1}}/>
-                  <input className="fi" placeholder="Longitude" value={f.lng} onChange={e=>set("lng",e.target.value)} style={{flex:1}}/>
+                  <input className="fi" placeholder="Latitude" value={f.latitude} onChange={e=>set("latitude",e.target.value)} style={{flex:1}}/>
+                  <input className="fi" placeholder="Longitude" value={f.longitude} onChange={e=>set("longitude",e.target.value)} style={{flex:1}}/>
                 </div>
                 <button className="bg" onClick={getMyLoc} disabled={gpsCapturing} style={{width:"100%",justifyContent:"center",opacity:gpsCapturing?0.7:1}}>
                   <I n="gps" s={14}/>{gpsCapturing?"📡 Getting GPS...":"Capture My Location"}
@@ -906,8 +906,8 @@ function StallsPage({data,setData,toast}){
                     <div style={{color:"var(--txd)",fontSize:11}}>{gpsAccuracy<=100?"Location saved! ✓":"Move outdoors and try again"}</div>
                   </div>
                 </div>}
-                {f.lat&&f.lng&&<div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"rgba(58,155,213,.1)",border:"1px solid rgba(58,155,213,.25)",fontSize:12,color:"var(--bl)"}}>
-                  📍 Saved: {f.lat}, {f.lng} — <a href={"https://maps.google.com/?q="+f.lat+","+f.lng} target="_blank" style={{color:"var(--bl)"}}>View on Map ↗</a>
+                {f.latitude&&f.longitude&&<div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"rgba(58,155,213,.1)",border:"1px solid rgba(58,155,213,.25)",fontSize:12,color:"var(--bl)"}}>
+                  📍 Saved: {f.latitude}, {f.longitude} — <a href={"https://maps.google.com/?q="+f.latitude+","+f.longitude} target="_blank" style={{color:"var(--bl)"}}>View on Map ↗</a>
                 </div>}
               </div>
               <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
@@ -1067,7 +1067,7 @@ function AllocPage({data,setData,toast}){
                         <div key={s.id} style={{background:"var(--d3)",borderRadius:8,padding:"8px 10px",marginBottom:5,display:"flex",alignItems:"center",gap:8}}>
                           <I n="pin" s={13} c="var(--g)"/>
                           <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{s.name}</div><div style={{fontSize:11,color:"var(--txd)"}}>{s.city} · {s.client||"—"}</div></div>
-                          <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:s.lat?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.lat?"var(--g)":"var(--rd)"}}>{s.lat?"🎯 GPS":"❌"}</span>
+                          <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:s.latitude?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.latitude?"var(--g)":"var(--rd)"}}>{s.latitude?"🎯 GPS":"❌"}</span>
                         </div>
                       );})}
                       {brands.length>0&&<div style={{fontSize:12,marginTop:6}}>🏷️ Brands: <strong>{brands.join(", ")}</strong></div>}
@@ -1225,7 +1225,7 @@ function ClockPage({user,data,setData,toast}){
     if(!gps) return toast("Capture GPS first!");
     const stall=(data.stalls||[]).find(s=>s.id===alloc.stall_id);
     if(!stall) return toast("Stall not found.");
-    const dist=haversine(gps.lat,gps.lng,Number(stall.lat),Number(stall.lng));
+    const dist=haversine(gps.lat,gps.lng,Number(stall.latitude),Number(stall.longitude));
 
     if(dist>GPS_RADIUS_M){
       const msg=`⚠️ SHINKORE: ${user.name} tried to clock in but is ${Math.round(dist)}m away from ${stall.name}. Required: within ${GPS_RADIUS_M}m.`;
@@ -1286,8 +1286,8 @@ function ClockPage({user,data,setData,toast}){
               <span className={`b ${att?"b-active":"b-pending"}`}>{att?att.clock_out?"Done":"On Duty":"Not In"}</span>
             </div>
             <div className="cb">
-              <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>GPS Target: {Number(stall.lat).toFixed(5)}, {Number(stall.lng).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
-              <a href={"https://maps.google.com/?q="+stall.lat+","+stall.lng} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(58,155,213,.12)",border:"1px solid rgba(58,155,213,.3)",borderRadius:8,padding:"7px 14px",fontSize:13,color:"var(--bl)",fontWeight:600,textDecoration:"none",marginBottom:12}}>📍 View Store on Map</a>
+              <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>GPS Target: {Number(stall.latitude).toFixed(5)}, {Number(stall.longitude).toFixed(5)} · Within {GPS_RADIUS_M}m required</div>
+              <a href={"https://maps.google.com/?q="+stall.latitude+","+stall.longitude} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(58,155,213,.12)",border:"1px solid rgba(58,155,213,.3)",borderRadius:8,padding:"7px 14px",fontSize:13,color:"var(--bl)",fontWeight:600,textDecoration:"none",marginBottom:12}}>📍 View Store on Map</a>
               {!att?(
                 <button className="bgps" onClick={()=>doClockIn(alloc)}>
                   <div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:700,color:"var(--gr)"}}>CLOCK IN</div><div style={{fontSize:12,color:"var(--txd)"}}>GPS will be verified</div></div>
@@ -1580,7 +1580,7 @@ function MyDash({user,data,setPage}){
                     <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
                     <div style={{fontSize:12,color:"var(--txd)"}}>{s.city} · Duty: {a.duty_start||"—"}</div>
                   </div>
-                  <div style={{fontSize:11,padding:"3px 8px",borderRadius:6,background:s.lat&&s.lng?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.lat&&s.lng?"var(--g)":"var(--rd)",border:"1px solid "+(s.lat&&s.lng?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)")}}>{s.lat&&s.lng?"🎯 GPS":"❌ No GPS"}</div>
+                  <div style={{fontSize:11,padding:"3px 8px",borderRadius:6,background:s.latitude&&s.longitude?"rgba(46,204,113,.15)":"rgba(231,76,60,.15)",color:s.latitude&&s.longitude?"var(--g)":"var(--rd)",border:"1px solid "+(s.latitude&&s.longitude?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)")}}>{s.latitude&&s.longitude?"🎯 GPS":"❌ No GPS"}</div>
                 </div>
                 {att?<div style={{background:"rgba(46,204,113,.1)",border:"1px solid rgba(46,204,113,.25)",borderRadius:8,padding:"8px 12px",fontSize:13}}>
                   <span style={{color:"var(--g)",fontWeight:600}}>✅ In: {att.clock_in}</span>
@@ -3601,7 +3601,7 @@ function ClientStoreMap({client,data}){
   const [gpsErr,setGpsErr]=useState("");
   const today=new Date().toISOString().slice(0,10);
   const myStores=(data.stalls||[]).filter(function(s){
-    if(!s.lat||!s.lng)return false;
+    if(!s.latitude||!s.longitude)return false;
     const cn=(client.name||"").toLowerCase();
     const cb=(client.brand||"").toLowerCase();
     const sc=(s.client||"").toLowerCase();
@@ -3626,12 +3626,12 @@ function ClientStoreMap({client,data}){
     if(!window.L||!mapRef.current||myStores.length===0)return;
     if(mapObj.current){mapObj.current.remove();mapObj.current=null;}
     const L=window.L;
-    const map=L.map(mapRef.current).setView([Number(myStores[0].lat),Number(myStores[0].lng)],12);
+    const map=L.map(mapRef.current).setView([Number(myStores[0].latitude),Number(myStores[0].longitude)],12);
     mapObj.current=map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
     const bounds=[];
     myStores.forEach(function(s){
-      const lat=Number(s.lat),lng=Number(s.lng);
+      const lat=Number(s.latitude),lng=Number(s.longitude);
       const st=storeStatus(s.id);
       const color=st?"#2ecc71":"#e74c3c";
       const icon=L.divIcon({className:"",html:'<div style="background:'+color+';width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>',iconSize:[26,26],iconAnchor:[13,26]});
@@ -3663,7 +3663,7 @@ function ClientStoreMap({client,data}){
       </div>
       {myStores.map(function(s){
         const st=storeStatus(s.id);
-        const dist=myLoc?haversine(myLoc.lat,myLoc.lng,Number(s.lat),Number(s.lng)):null;
+        const dist=myLoc?haversine(myLoc.lat,myLoc.lng,Number(s.latitude),Number(s.longitude)):null;
         const distStr=dist!==null?(dist>=1000?(dist/1000).toFixed(1)+" km":Math.round(dist)+" m"):null;
         return(
           <div key={s.id} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
@@ -3673,7 +3673,7 @@ function ClientStoreMap({client,data}){
                 <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
                 <div style={{fontSize:12,color:"var(--txd)"}}>{s.city}{distStr&&client.perm_distance!==false?" · 📏 "+distStr+" away":""}</div>
               </div>
-              <a href={"https://maps.google.com/?q="+s.lat+","+s.lng} target="_blank" style={{fontSize:12,color:"var(--bl)",textDecoration:"none",whiteSpace:"nowrap"}}>Directions ↗</a>
+              <a href={"https://maps.google.com/?q="+s.latitude+","+s.longitude} target="_blank" style={{fontSize:12,color:"var(--bl)",textDecoration:"none",whiteSpace:"nowrap"}}>Directions ↗</a>
             </div>
             {client.perm_live!==false&&<div style={{marginTop:8,fontSize:12,padding:"6px 10px",borderRadius:8,background:st?"rgba(46,204,113,.1)":"var(--d2)",border:"1px solid "+(st?"rgba(46,204,113,.25)":"var(--bo)"),color:st?"var(--g)":"var(--txd)"}}>
               {st?"🟢 "+st.name+" ("+st.role+") since "+st.time:"⚪ No staff clocked in right now"}
