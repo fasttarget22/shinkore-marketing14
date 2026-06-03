@@ -178,6 +178,7 @@ const I = ({n,s=18,c="currentColor"}) => {
     map:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><polygon points="1,6 1,22 8,18 16,22 23,18 23,2 16,6 8,2"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
     user:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
     box:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27,6.96 12,12.01 20.73,6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+    flag:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
   };
   return m[n]||null;
 };
@@ -258,6 +259,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"training",icon:"users",label:"Training"},
     {id:"clients",icon:"users",label:"Clients"},
     {id:"products",icon:"box",label:"Products"},
+    {id:"campaigns",icon:"flag",label:"Campaigns"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"documents",icon:"pdf",label:"Document History"},
@@ -4207,6 +4209,214 @@ function Soon({title}){
   );
 }
 
+// ─── CAMPAIGNS PAGE ───────────────────────────────────────────────────────────
+function CampaignsPage({data,toast}){
+  const [campaigns,setCampaigns]=useState([]);
+  const [targets,setTargets]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [show,setShow]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const emptyF={name:"",client_id:"",start_date:"",end_date:"",selectedBAs:[],baTargets:{}};
+  const [f,setF]=useState(emptyF);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const today=new Date().toISOString().slice(0,10);
+  const staff=(data.users||[]).filter(u=>u.role==="ba"||u.role==="supervisor");
+
+  useEffect(()=>{
+    Promise.all([
+      SB.from("sm_campaigns").select("*").order("created_at",{ascending:false}),
+      SB.from("sm_campaign_targets").select("*")
+    ]).then(([{data:cRows},{data:tRows}])=>{
+      setCampaigns(cRows||[]);setTargets(tRows||[]);setLoading(false);
+    });
+  },[]);
+
+  const openAdd=()=>{setEditing(null);setF(emptyF);setShow(true);};
+  const openEdit=(c)=>{
+    setEditing(c);
+    const bt={};
+    targets.filter(t=>t.campaign_id===c.id).forEach(t=>{bt[t.ba_id]={doors_per_day:t.doors_per_day||"",units_per_day:t.units_per_day||"",revenue_target:t.revenue_target||""};});
+    setF({name:c.name,client_id:c.client_id,start_date:c.start_date||"",end_date:c.end_date||"",selectedBAs:c.assigned_bas||[],baTargets:bt});
+    setShow(true);
+  };
+
+  const toggleBA=(uid)=>{
+    setF(p=>{
+      const isSel=p.selectedBAs.includes(uid);
+      const sel=isSel?p.selectedBAs.filter(x=>x!==uid):[...p.selectedBAs,uid];
+      const bt={...p.baTargets};
+      if(isSel) delete bt[uid]; else bt[uid]={doors_per_day:"",units_per_day:"",revenue_target:""};
+      return{...p,selectedBAs:sel,baTargets:bt};
+    });
+  };
+  const setTarget=(baId,field,value)=>setF(p=>({...p,baTargets:{...p.baTargets,[baId]:{...p.baTargets[baId],[field]:value}}}));
+
+  const doSave=async()=>{
+    if(!f.name.trim()) return toast("Campaign name required.");
+    if(!f.client_id) return toast("Select a client.");
+    if(!f.start_date||!f.end_date) return toast("Start and end dates required.");
+    if(f.end_date<f.start_date) return toast("End date must be after start date.");
+    if(f.selectedBAs.length===0) return toast("Assign at least one BA or Supervisor.");
+    const cid=editing?.id||crypto.randomUUID();
+    const crow={id:cid,client_id:f.client_id,name:f.name.trim(),type:"dtd",start_date:f.start_date,end_date:f.end_date,assigned_bas:f.selectedBAs,status:"active"};
+    const{error:e1}=await SB.from("sm_campaigns").upsert([crow],{onConflict:"id"});
+    if(e1) return toast("Save failed: "+e1.message);
+    const{error:e2}=await SB.from("sm_campaign_targets").delete().eq("campaign_id",cid);
+    if(e2) return toast("Failed to clear old targets: "+e2.message);
+    const trows=f.selectedBAs.map(baId=>({id:crypto.randomUUID(),campaign_id:cid,ba_id:baId,doors_per_day:Number(f.baTargets[baId]?.doors_per_day)||0,units_per_day:Number(f.baTargets[baId]?.units_per_day)||0,revenue_target:Number(f.baTargets[baId]?.revenue_target)||0}));
+    if(trows.length>0){const{error:e3}=await SB.from("sm_campaign_targets").insert(trows);if(e3) return toast("Targets save failed: "+e3.message);}
+    setCampaigns(p=>editing?p.map(x=>x.id===cid?crow:x):[crow,...p]);
+    setTargets(p=>[...p.filter(t=>t.campaign_id!==cid),...trows]);
+    setShow(false);toast(editing?"Campaign updated!":"Campaign created!");
+  };
+
+  const doDel=async(c)=>{
+    if(!confirm(`Delete "${c.name}"? This also removes all BA targets.`)) return;
+    await SB.from("sm_campaign_targets").delete().eq("campaign_id",c.id);
+    const{error}=await SB.from("sm_campaigns").delete().eq("id",c.id);
+    if(error) return toast("Delete failed.");
+    setCampaigns(p=>p.filter(x=>x.id!==c.id));
+    setTargets(p=>p.filter(t=>t.campaign_id!==c.id));
+    toast("Campaign deleted.");
+  };
+
+  const clientName=(id)=>(data.clients||[]).find(c=>c.id===id)?.name||"—";
+
+  return(
+    <div>
+      <div className="card">
+        <div className="ch">
+          <I n="flag" s={17} c="var(--g)"/>
+          <div style={{flex:1}}><div className="ct">Campaigns</div><div className="cs">{campaigns.length} campaigns</div></div>
+          <button className="bg" onClick={openAdd}><I n="plus" s={15}/>New Campaign</button>
+        </div>
+        <div className="cb">
+          {loading&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading campaigns…</div>}
+          {!loading&&campaigns.length===0&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>No campaigns yet. Create your first DTD campaign.</div>}
+          {!loading&&campaigns.map(c=>{
+            const cTargets=targets.filter(t=>t.campaign_id===c.id);
+            const ended=c.end_date&&c.end_date<today;
+            return(
+              <div key={c.id} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:16,marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div>
+                    <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{c.name}</div>
+                    <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>{clientName(c.client_id)} · {c.start_date} → {c.end_date}</div>
+                    <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>👥 {(c.assigned_bas||[]).length} staff assigned</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                    <span style={{fontSize:11,padding:"2px 10px",borderRadius:20,fontWeight:600,background:ended?"rgba(231,76,60,.12)":"rgba(46,204,113,.12)",color:ended?"var(--rd)":"var(--gr)",border:"1px solid "+(ended?"rgba(231,76,60,.3)":"rgba(46,204,113,.3)")}}>{ended?"Ended":"Active"}</span>
+                    <button className="bic" onClick={()=>openEdit(c)}><I n="edit" s={14}/></button>
+                    <button className="brd" onClick={()=>doDel(c)}><I n="del" s={13}/></button>
+                  </div>
+                </div>
+                {cTargets.length>0&&(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid var(--bo)"}}>
+                          <th style={{textAlign:"left",padding:"4px 8px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:1}}>Staff</th>
+                          <th style={{textAlign:"right",padding:"4px 8px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:1}}>Doors/Day</th>
+                          <th style={{textAlign:"right",padding:"4px 8px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:1}}>Units/Day</th>
+                          <th style={{textAlign:"right",padding:"4px 8px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:1}}>Rev Target</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cTargets.map(t=>{
+                          const u=(data.users||[]).find(x=>x.id===t.ba_id);
+                          return(
+                            <tr key={t.id} style={{borderBottom:"1px solid var(--bo)"}}>
+                              <td style={{padding:"5px 8px",fontWeight:600}}>{u?.name||"—"}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:"var(--bl)"}}>{t.doors_per_day||0}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:"var(--bl)"}}>{t.units_per_day||0}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:"var(--g)",fontFamily:"Rajdhani",fontWeight:700}}>{formatPKR(t.revenue_target)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {show&&(
+        <div className="mo" onClick={e=>e.target===e.currentTarget&&setShow(false)}>
+          <div className="md">
+            <div className="mh"><div className="mt">{editing?"Edit Campaign":"New Campaign"}</div><div className="mc" onClick={()=>setShow(false)}>×</div></div>
+            <div className="mb">
+              <div className="fg"><label className="fl">Campaign Name</label><input className="fi" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. June DTD — Brite"/></div>
+              <div className="fg"><label className="fl">Client</label>
+                <select className="fsel" value={f.client_id} onChange={e=>set("client_id",e.target.value)}>
+                  <option value="">— Select Client —</option>
+                  {(data.clients||[]).map(c=><option key={c.id} value={c.id}>{c.name} ({c.brand})</option>)}
+                </select>
+              </div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Start Date</label><input className="fi" type="date" value={f.start_date} onChange={e=>set("start_date",e.target.value)}/></div>
+                <div className="fg"><label className="fl">End Date</label><input className="fi" type="date" value={f.end_date} onChange={e=>set("end_date",e.target.value)}/></div>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label className="fl">Assign BAs &amp; Supervisors</label>
+                <div style={{background:"var(--d3)",borderRadius:8,border:"1px solid var(--bo)",maxHeight:180,overflowY:"auto"}}>
+                  {staff.length===0&&<div style={{padding:"12px",fontSize:12,color:"var(--txd)"}}>No BA or Supervisor staff found.</div>}
+                  {staff.map(u=>{
+                    const sel=f.selectedBAs.includes(u.id);
+                    return(
+                      <div key={u.id} onClick={()=>toggleBA(u.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",cursor:"pointer",background:sel?"rgba(201,168,76,.08)":"transparent",borderBottom:"1px solid var(--bo)"}}>
+                        <div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(sel?"var(--g)":"var(--bo)"),background:sel?"var(--g)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {sel&&<svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="3"><polyline points="20,6 9,17 4,12"/></svg>}
+                        </div>
+                        <span style={{flex:1,fontSize:13,fontWeight:sel?600:400}}>{u.name}</span>
+                        <span style={{fontSize:10,padding:"1px 7px",borderRadius:10,background:"var(--d2)",color:"var(--txd)",border:"1px solid var(--bo)"}}>{u.role}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {f.selectedBAs.length>0&&(
+                <div style={{marginBottom:12}}>
+                  <label className="fl">Targets per BA</label>
+                  <div style={{background:"var(--d3)",borderRadius:8,border:"1px solid var(--bo)",overflow:"hidden"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid var(--bo)"}}>
+                          <th style={{textAlign:"left",padding:"6px 10px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:.8}}>Staff</th>
+                          <th style={{padding:"6px 4px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:.8,textAlign:"center"}}>Doors/Day</th>
+                          <th style={{padding:"6px 4px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:.8,textAlign:"center"}}>Units/Day</th>
+                          <th style={{padding:"6px 4px",color:"var(--txd)",fontWeight:600,fontSize:10,textTransform:"uppercase",letterSpacing:.8,textAlign:"center"}}>Revenue (PKR)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {f.selectedBAs.map(baId=>{
+                          const u=(data.users||[]).find(x=>x.id===baId);
+                          const t=f.baTargets[baId]||{};
+                          return(
+                            <tr key={baId} style={{borderBottom:"1px solid var(--bo)"}}>
+                              <td style={{padding:"5px 10px",fontWeight:600}}>{u?.name||"—"}</td>
+                              <td style={{padding:"3px 4px"}}><input className="fi" type="number" min="0" style={{padding:"4px 6px",fontSize:12,textAlign:"center"}} value={t.doors_per_day||""} onChange={e=>setTarget(baId,"doors_per_day",e.target.value)} placeholder="0"/></td>
+                              <td style={{padding:"3px 4px"}}><input className="fi" type="number" min="0" style={{padding:"4px 6px",fontSize:12,textAlign:"center"}} value={t.units_per_day||""} onChange={e=>setTarget(baId,"units_per_day",e.target.value)} placeholder="0"/></td>
+                              <td style={{padding:"3px 4px"}}><input className="fi" type="number" min="0" style={{padding:"4px 6px",fontSize:12}} value={t.revenue_target||""} onChange={e=>setTarget(baId,"revenue_target",e.target.value)} placeholder="0"/></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div className="ma"><button className="bs" onClick={()=>setShow(false)}>Cancel</button><button className="bg" onClick={doSave}><I n="ok" s={15}/>{editing?"Save Changes":"Create Campaign"}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PRODUCTS PAGE ────────────────────────────────────────────────────────────
 function ProductsPage({data,toast}){
   const [products,setProducts]=useState([]);
@@ -4457,7 +4667,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -4478,6 +4688,7 @@ export default function App(){
         case "daily_plan": return <DailyPlanPage user={user} data={data} setData={setData} toast={toast}/>;
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
         case "products": return <ProductsPage data={data} toast={toast}/>;
+        case "campaigns": return <CampaignsPage data={data} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
         case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
         case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
