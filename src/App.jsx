@@ -260,6 +260,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"clients",icon:"users",label:"Clients"},
     {id:"products",icon:"box",label:"Products"},
     {id:"campaigns",icon:"flag",label:"Campaigns"},
+    {id:"sops",icon:"pdf",label:"SOP Manager"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
     {id:"documents",icon:"pdf",label:"Document History"},
@@ -4608,6 +4609,94 @@ function ProductsPage({data,toast}){
   );
 }
 
+// ─── SOP MANAGER ──────────────────────────────────────────────────────────────
+function SOPManagerPage({data,toast}){
+  const [clientId,setClientId]=useState("");
+  const [sop,setSop]=useState(null);
+  const [loadingSop,setLoadingSop]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [instructions,setInstructions]=useState("");
+  const [checklist,setChecklist]=useState([]);
+
+  useEffect(()=>{
+    if(!clientId){setSop(null);setInstructions("");setChecklist([]);return;}
+    setLoadingSop(true);
+    SB.from("sm_sops").select("*").eq("client_id",clientId).limit(1).then(({data:rows})=>{
+      const row=(rows&&rows[0])||null;
+      setSop(row);
+      setInstructions(row?row.instructions||"":"");
+      setChecklist(row?(row.checklist||[]):[]);
+      setLoadingSop(false);
+    });
+  },[clientId]);
+
+  const addItem=()=>setChecklist(c=>[...c,{id:crypto.randomUUID(),text:"",required:true}]);
+  const delItem=(id)=>setChecklist(c=>c.filter(i=>i.id!==id));
+  const setItemText=(id,text)=>setChecklist(c=>c.map(i=>i.id===id?{...i,text}:i));
+  const toggleRequired=(id)=>setChecklist(c=>c.map(i=>i.id===id?{...i,required:!i.required}:i));
+
+  const doSave=async()=>{
+    if(!clientId) return;
+    const cleanItems=checklist.filter(i=>i.text.trim());
+    const row={id:sop?.id||crypto.randomUUID(),client_id:clientId,instructions:instructions.trim(),checklist:cleanItems,created_at:sop?.created_at||new Date().toISOString()};
+    setSaving(true);
+    const{error}=await SB.from("sm_sops").upsert([row],{onConflict:"id"});
+    setSaving(false);
+    if(error){toast("Save failed: "+error.message);return;}
+    setSop(row);toast("SOP saved!");
+  };
+
+  const clients=data.clients||[];
+  return(
+    <div>
+      <div className="card">
+        <div className="ch"><I n="pdf" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">SOP Manager</div><div className="cs">Standard Operating Procedures per client</div></div></div>
+        <div className="cb">
+          <div className="fg" style={{marginBottom:16}}>
+            <label className="fl">Select Client</label>
+            <select className="fsel" value={clientId} onChange={e=>setClientId(e.target.value)}>
+              <option value="">-- Select client --</option>
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}{c.brand?" — "+c.brand:""}</option>)}
+            </select>
+          </div>
+          {!clientId&&<div style={{textAlign:"center",padding:"24px 0",color:"var(--txd)",fontSize:13}}>Select a client to manage their SOP.</div>}
+          {clientId&&loadingSop&&<div style={{textAlign:"center",padding:"20px",color:"var(--txd)",fontSize:13}}>Loading...</div>}
+          {clientId&&!loadingSop&&(
+            <>
+              {sop
+                ?<div className="info info-blue" style={{marginBottom:12}}><I n="ok" s={13}/>Existing SOP loaded — editing.</div>
+                :<div className="info info-warn" style={{marginBottom:12}}><I n="alert" s={13}/>No SOP yet — will create on save.</div>}
+              <div className="fg" style={{marginBottom:14}}>
+                <label className="fl">Instructions / Rules</label>
+                <textarea className="fi" value={instructions} onChange={e=>setInstructions(e.target.value)} rows={4} placeholder="Enter rules, steps or instructions BAs must follow at every door visit..." style={{resize:"vertical",minHeight:90,fontFamily:"inherit"}}/>
+              </div>
+              <div style={{marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:12,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1}}>Checklist Items</div>
+                  <button className="bg" onClick={addItem} style={{fontSize:12,padding:"4px 12px"}}><I n="plus" s={12}/>Add item</button>
+                </div>
+                {checklist.length===0&&<div style={{fontSize:12,color:"var(--txd)",textAlign:"center",padding:"12px 0"}}>No items yet. Add steps BAs must confirm at each visit.</div>}
+                {checklist.map(item=>(
+                  <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,marginBottom:8,alignItems:"center"}}>
+                    <input className="fi" value={item.text} onChange={e=>setItemText(item.id,e.target.value)} placeholder="e.g. Showed product demo" style={{fontSize:13}}/>
+                    <button onClick={()=>toggleRequired(item.id)} style={{padding:"5px 10px",borderRadius:7,border:"1px solid "+(item.required?"rgba(231,76,60,.5)":"rgba(201,168,76,.4)"),background:item.required?"rgba(231,76,60,.12)":"rgba(201,168,76,.08)",color:item.required?"var(--rd)":"var(--g)",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {item.required?"Required":"Optional"}
+                    </button>
+                    <button onClick={()=>delItem(item.id)} style={{background:"rgba(231,76,60,.12)",border:"1px solid rgba(231,76,60,.3)",borderRadius:7,color:"var(--rd)",cursor:"pointer",width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,lineHeight:1}}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="ma">
+                <button className="bg" onClick={doSave} disabled={saving} style={{opacity:saving?0.6:1}}><I n="ok" s={15}/>{saving?"Saving...":"Save SOP"}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── DTD DASH ─────────────────────────────────────────────────────────────────
 function DTDDashPage({user,toast}){
   const today=new Date().toISOString().slice(0,10);
@@ -4623,6 +4712,8 @@ function DTDDashPage({user,toast}){
   const [visitItemCounts,setVisitItemCounts]=useState({});
   const [showModal,setShowModal]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [clientSop,setClientSop]=useState(null);
+  const [sopChecks,setSopChecks]=useState({});
 
   const emptyForm=()=>({customer_name:"",customer_phone:"",photo_url:"",photoUploading:false,gps:null,gpsCapturing:false,gpsError:"",lines:[{product_id:"",sku:"",product_name:"",qty:1,type:"sale"}]});
   const [form,setForm]=useState(emptyForm());
@@ -4688,7 +4779,12 @@ function DTDDashPage({user,toast}){
     );
   };
 
-  const openModal=()=>{setForm(emptyForm());setShowModal(true);setTimeout(captureGPS,0);};
+  const openModal=()=>{
+    setForm(emptyForm());setSopChecks({});setClientSop(null);setShowModal(true);
+    setTimeout(captureGPS,0);
+    SB.from("sm_sops").select("*").eq("client_id",activeCampaign.client_id).limit(1)
+      .then(({data:rows})=>setClientSop((rows&&rows[0])||null));
+  };
 
   const setLine=(idx,key,val)=>{
     setForm(f=>{
@@ -4708,9 +4804,16 @@ function DTDDashPage({user,toast}){
     const validLines=form.lines.filter(l=>l.product_id);
     if(validLines.length===0){toast("Add at least one product.");return;}
     if(validLines.some(l=>Number(l.qty)<1)){toast("Qty must be at least 1.");return;}
+    if(clientSop){
+      const missing=(clientSop.checklist||[]).filter(item=>item.required&&!sopChecks[item.id]);
+      if(missing.length>0){toast(`Required: "${missing[0].text}" must be ticked.`);return;}
+    }
     setSaving(true);
     const visitId=crypto.randomUUID();
-    const visitRow={id:visitId,campaign_id:activeCampaign.id,ba_id:user.id,client_id:activeCampaign.client_id,latitude:Number(form.gps.lat),longitude:Number(form.gps.lng),visit_time:new Date().toISOString(),customer_name:form.customer_name.trim(),customer_phone:form.customer_phone.trim(),photo_url:form.photo_url||null};
+    const sopSnapshot=clientSop
+      ?(clientSop.checklist||[]).map(item=>({id:item.id,text:item.text,required:item.required,checked:!!sopChecks[item.id]}))
+      :null;
+    const visitRow={id:visitId,campaign_id:activeCampaign.id,ba_id:user.id,client_id:activeCampaign.client_id,latitude:Number(form.gps.lat),longitude:Number(form.gps.lng),visit_time:new Date().toISOString(),customer_name:form.customer_name.trim(),customer_phone:form.customer_phone.trim(),photo_url:form.photo_url||null,sop_checklist:sopSnapshot};
     const{error:e1}=await SB.from("sm_door_visits").insert([visitRow]);
     if(e1){setSaving(false);toast("Save failed: "+e1.message);return;}
     const itemRows=validLines.map(l=>({id:crypto.randomUUID(),visit_id:visitId,product_id:l.product_id,sku:l.sku,product_name:l.product_name,qty:Number(l.qty),type:l.type}));
@@ -4825,6 +4928,26 @@ function DTDDashPage({user,toast}){
           <div className="md">
             <div className="mh"><div className="mt">New Door Visit</div><div className="mc" onClick={()=>setShowModal(false)}>×</div></div>
             <div className="mb">
+
+              {/* SOP */}
+              {clientSop&&(
+                <div style={{background:"var(--d3)",border:"1px solid rgba(201,168,76,.3)",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+                  <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>📋 Client SOP</div>
+                  {clientSop.instructions&&<div style={{fontSize:12,color:"var(--tx)",marginBottom:10,lineHeight:1.5}}>{clientSop.instructions}</div>}
+                  {(clientSop.checklist||[]).length>0&&(
+                    <div>
+                      {(clientSop.checklist||[]).map(item=>(
+                        <label key={item.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,cursor:"pointer"}}>
+                          <input type="checkbox" checked={!!sopChecks[item.id]} onChange={e=>setSopChecks(s=>({...s,[item.id]:e.target.checked}))} style={{width:16,height:16,cursor:"pointer",accentColor:"var(--g)"}}/>
+                          <span style={{fontSize:13,color:"var(--tx)",flex:1}}>{item.text}</span>
+                          {item.required&&<span style={{color:"var(--rd)",fontSize:12,fontWeight:700,flexShrink:0}}>*</span>}
+                        </label>
+                      ))}
+                      <div style={{fontSize:10,color:"var(--txd)",marginTop:6}}>* Required — must be ticked before saving.</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* GPS */}
               <div style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
@@ -4995,6 +5118,7 @@ export default function App(){
         case "clients": return <ClientsPage user={user} data={data} setData={setData} toast={toast}/>;
         case "products": return <ProductsPage data={data} toast={toast}/>;
         case "campaigns": return <CampaignsPage data={data} toast={toast}/>;
+        case "sops": return <SOPManagerPage data={data} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
         case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
         case "documents": return <DocumentsPage data={data} user={user} toast={toast}/>;
