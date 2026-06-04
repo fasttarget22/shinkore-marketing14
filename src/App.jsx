@@ -628,8 +628,9 @@ function StaffPage({data,setData,toast}){
   const doDel=(u)=>{
     if(!confirm(`Delete ${u.name}?`)) return;
     var orphanAllocs=(data.allocations||[]).filter(x=>x.user_id===u.id);
-    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id),allocations:(data.allocations||[]).filter(x=>x.user_id!==u.id)};
-    setData(d);save(d);deleteFromSB("sm_users",u.id);orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});toast("Removed.");
+    var orphanAtt=(data.attendance||[]).filter(x=>x.user_id===u.id);
+    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id),allocations:(data.allocations||[]).filter(x=>x.user_id!==u.id),attendance:(data.attendance||[]).filter(x=>x.user_id!==u.id)};
+    setData(d);save(d);deleteFromSB("sm_users",u.id);orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});orphanAtt.forEach(function(a){deleteFromSB("sm_attendance",a.id);});toast("Removed.");
   };
 
   const addTeam=()=>{
@@ -1444,13 +1445,19 @@ function ClockPage({user,data,setData,toast}){
 }
 
 // ─── ATTENDANCE (ADMIN) ───────────────────────────────────────────────────────
-function AttendancePage({data,setData,toast}){
+function AttendancePage({user,data,setData,toast}){
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const dayAtt=(data.attendance||[]).filter(a=>a.date===date);
   const [manualFor,setManualFor]=useState(null);
   const [mIn,setMIn]=useState("");
   const [mOut,setMOut]=useState("");
   const [mReason,setMReason]=useState("");
+
+  const delAtt=(att)=>{
+    if(!confirm("Delete this attendance record?")) return;
+    const d={...data,attendance:(data.attendance||[]).filter(x=>x.id!==att.id)};
+    setData(d);save(d);deleteFromSB("sm_attendance",att.id);toast("Attendance deleted.");
+  };
 
   const openManual=(alloc,existing)=>{
     setManualFor(alloc);
@@ -1514,7 +1521,10 @@ function AttendancePage({data,setData,toast}){
                     <div style={{fontSize:12,color:"var(--gr)",fontWeight:600}}>In: {att.clock_in}</div>
                     {att.clock_out&&<div style={{fontSize:12,color:"var(--rd)"}}>Out: {att.clock_out}</div>}
                     <div style={{fontSize:10,color:"var(--txd)"}}>{att.manual?"✏️ Manual entry":att.dist+"m from stall"}</div>
-                  <button className="bs" onClick={()=>openManual(a,att)} style={{fontSize:10,padding:"3px 8px",marginTop:4}}>✏️ Edit</button>
+                  <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:4}}>
+                    <button className="bs" onClick={()=>openManual(a,att)} style={{fontSize:10,padding:"3px 8px"}}>✏️ Edit</button>
+                    {user?.role==="admin"&&<button className="brd" onClick={()=>delAtt(att)} style={{fontSize:10,padding:"3px 8px"}}><I n="del" s={11}/></button>}
+                  </div>
                   </div>
                 ):(
                   <div style={{display:"flex",gap:8,alignItems:"center"}}>
