@@ -467,15 +467,19 @@ function AdminDash({data,toast,setPage}){
                     <div style={{fontSize:13,fontWeight:600}}>{u.name}</div>
                     <div style={{fontSize:11,color:"var(--txd)"}}>{s.name} · {s.city} · Duty: {a.duty_start}</div>
                   </div>
-                  <button className="bw" style={{fontSize:12,padding:"6px 12px"}} onClick={function(){
-                    var msg="📋 *SHINKORE MARKETING*\n\n"+
-                      "Assalam o Alaikum *"+u.name+"*!\n\n"+
-                      "Aap ne aaj "+s.name+", "+s.city+" par duty ki lekin abhi tak apni activity report submit nahi ki.\n\n"+
-                      "Bara-e-meharbani app mein apni aaj ki report foran submit karein.\n\n"+
-                      "App: https://shinkore-marketing14.pages.dev\n— Khalid Orakzai";
-                    sendWA(u.phone,msg);
-                    ADMIN_PHONES.forEach(ph=>sendWA(ph,"⚠️ Reminder sent to "+u.name+" — report not submitted for "+s.name+", "+s.city+"."));
-                  }}><I n="wa" s={13}/>Remind</button>
+                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                    <button className="bw" style={{fontSize:12,padding:"6px 10px"}} onClick={function(){
+                      var msg="📋 *SHINKORE MARKETING*\n\n"+
+                        "Assalam o Alaikum *"+u.name+"*!\n\n"+
+                        "Aap ne aaj "+s.name+", "+s.city+" par duty ki lekin abhi tak apni activity report submit nahi ki.\n\n"+
+                        "Bara-e-meharbani app mein apni aaj ki report foran submit karein.\n\n"+
+                        "App: https://shinkore-marketing14.pages.dev\n— Khalid Orakzai";
+                      sendWA(u.phone,msg);
+                    }}><I n="wa" s={13}/>Remind</button>
+                    {ADMIN_PHONES.map(ph=>(
+                      <button key={ph} style={{fontSize:10,padding:"3px 8px",background:"rgba(201,168,76,.15)",border:"1px solid rgba(201,168,76,.4)",borderRadius:6,cursor:"pointer",color:"var(--g)"}} onClick={()=>sendWA(ph,"⚠️ Reminder sent to "+u.name+" — report not submitted for "+s.name+", "+s.city+".")}>...{waNumber(ph).slice(-4)}</button>
+                    ))}
+                  </div>
                 </div>
               );
             })}
@@ -509,7 +513,9 @@ function AdminDash({data,toast,setPage}){
               );
             })}
             <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button onClick={function(){ADMIN_PHONES.forEach(function(ph){sendWA(ph,"ATTENDANCE ALERT\n"+alertPopup.msg+"\n\n"+alertPopup.details);});setAlertPopup(null);}} style={{flex:1,background:"var(--rd)",border:"none",borderRadius:8,padding:8,cursor:"pointer",color:"#fff",fontSize:12,fontWeight:600}}>📤 Alert Khalid</button>
+              {ADMIN_PHONES.map(ph=>(
+                <button key={ph} onClick={function(){sendWA(ph,"ATTENDANCE ALERT\n"+alertPopup.msg+"\n\n"+alertPopup.details);}} style={{flex:1,background:"rgba(201,168,76,.2)",border:"1px solid rgba(201,168,76,.5)",borderRadius:8,padding:8,cursor:"pointer",color:"var(--g)",fontSize:11,fontWeight:600}}>📤 ...{waNumber(ph).slice(-4)}</button>
+              ))}
               <button onClick={function(){setAlertDismissed(function(prev){return prev.concat(alertPopup.absent.map(function(a){return a.user_id;}));});setAlertPopup(null);}} style={{flex:1,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:8,cursor:"pointer",color:"var(--txd)",fontSize:12}}>Dismiss</button>
             </div>
           </div>
@@ -525,7 +531,11 @@ function AdminDash({data,toast,setPage}){
           <div style={{fontWeight:700,fontSize:14,color:"var(--rd)"}}>{stuckReports.length} report{stuckReports.length!==1?"s":""} awaiting approval over 12h</div>
           <div style={{fontSize:12,color:"var(--txd)"}}>Tap to review and approve/reject so BAs aren't left waiting.</div>
         </div>
-        <button onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");ADMIN_PHONES.forEach(function(ph){sendWA(ph,"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);});}} style={{background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"5px 10px",cursor:"pointer",color:"#25d366",fontSize:11,whiteSpace:"nowrap"}}>📤 Remind</button>
+        <div style={{display:"flex",gap:4,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+          {ADMIN_PHONES.map(ph=>(
+            <button key={ph} onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");sendWA(ph,"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);}} style={{background:"rgba(201,168,76,.15)",border:"1px solid rgba(201,168,76,.4)",borderRadius:8,padding:"5px 8px",cursor:"pointer",color:"var(--g)",fontSize:11,whiteSpace:"nowrap"}}>📤 ...{waNumber(ph).slice(-4)}</button>
+          ))}
+        </div>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div className="card">
@@ -1486,17 +1496,17 @@ function AttendancePage({user,data,setData,toast}){
     setData(d);save(d);setManualFor(null);toast("Manual attendance saved.");
   };
 
-  const sendLateAlert=(u,stall)=>{
+  const sendLateAlert=(u,stall,adminPhone)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
     const alloc=data.allocations.find(a=>a.user_id===u.id&&a.stall_id===stall.id&&a.active);
     const team=u.team||"Unassigned";
     const supId=data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&(data.users||[]).find(x=>x.id===a.user_id&&x.role==="supervisor"));
     const sup=supId?(data.users||[]).find(x=>x.id===supId.user_id):null;
     const msg=buildLateMsg(u.name,u.role,stall.name,stall.city,team,alloc?.duty_start||"—",date);
-    ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
+    sendWA(adminPhone,msg);
     if(sup) sendWA(sup.phone,msg);
     sendWA(u.phone,`*Shinkore Marketing* — Aap ne ${date} ko abhi tak duty start nahi ki. Assigned location: ${stall.name}, ${stall.city}. Foran clock in karein.`);
-    toast("Alert sent: Khalid" + (sup ? " + " + sup.name : "") + " + " + u.name);
+    toast("Alert sent to ..."+waNumber(adminPhone).slice(-4)+(sup?" + "+sup.name:"")+" + "+u.name);
   };
 
   const allocs=data.allocations.filter(a=>a.active);
@@ -1534,12 +1544,12 @@ function AttendancePage({user,data,setData,toast}){
                   </div>
                   </div>
                 ):(
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
                     <span style={{fontSize:12,color:"var(--rd)",fontWeight:600}}>Not In</span>
-                    <button className="brd" onClick={()=>sendLateAlert(u,s)} style={{fontSize:11,padding:"5px 10px"}}>
-                      <I n="wa" s={12}/>Alert
-                    </button>
-                  <button className="bs" onClick={()=>openManual(a,null)} style={{fontSize:11,padding:"5px 10px"}}>✏️ Manual</button>
+                    {ADMIN_PHONES.map(ph=>(
+                      <button key={ph} style={{fontSize:10,padding:"3px 8px",background:"rgba(201,168,76,.15)",border:"1px solid rgba(201,168,76,.4)",borderRadius:6,cursor:"pointer",color:"var(--g)"}} onClick={()=>sendLateAlert(u,s,ph)}><I n="wa" s={11}/>...{waNumber(ph).slice(-4)}</button>
+                    ))}
+                    <button className="bs" onClick={()=>openManual(a,null)} style={{fontSize:11,padding:"5px 10px"}}>✏️ Manual</button>
                   </div>
                 )}
               </div>
@@ -1571,17 +1581,17 @@ function AttendancePage({user,data,setData,toast}){
 function AlertsPage({data,toast}){
   const today=new Date().toISOString().slice(0,10);
 
-  const sendManualLate=(u)=>{
+  const sendManualLate=(u,adminPhone)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
     const alloc=data.allocations.find(a=>a.user_id===u.id&&a.active);
     const stall=alloc?(data.stalls||[]).find(s=>s.id===alloc.stall_id):null;
     const supAlloc=stall?data.allocations.find(a=>a.stall_id===stall.id&&a.active&&a.user_id!==u.id&&(data.users||[]).find(x=>x.id===a.user_id&&x.role==="supervisor")):null;
     const sup=supAlloc?(data.users||[]).find(x=>x.id===supAlloc.user_id):null;
     const msg=buildLateMsg(u.name,u.role,stall?.name||"Assigned Location",stall?.city||"",u.team||"Unassigned",alloc?.duty_start||now,today);
-    ADMIN_PHONES.forEach(ph=>sendWA(ph,msg));
+    sendWA(adminPhone,msg);
     if(sup) sendWA(sup.phone,msg);
     sendWA(u.phone,`*Shinkore Marketing* — Aap ne aaj abhi tak duty start nahi ki${stall?` at ${stall.name}`:""}.`);
-    toast("Alert sent to Khalid" + (sup ? " + " + sup.name : "") + " + " + u.name);
+    toast("Alert sent to ..."+waNumber(adminPhone).slice(-4)+(sup?" + "+sup.name:"")+" + "+u.name);
   };
 
   return(
@@ -1602,7 +1612,11 @@ function AlertsPage({data,toast}){
                   <div style={{fontWeight:600,fontSize:14}}>{u.name}</div>
                   <div style={{fontSize:12,color:"var(--txd)"}}>{u.role==="ba"?"BA":"Supervisor"} · {stall?`${stall.name}, ${stall.city}`:"No active stall"}</div>
                 </div>
-                <button className="brd" onClick={()=>sendManualLate(u)}><I n="wa" s={13}/>Send Alert</button>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {ADMIN_PHONES.map(ph=>(
+                    <button key={ph} className="brd" style={{fontSize:11,padding:"4px 8px"}} onClick={()=>sendManualLate(u,ph)}><I n="wa" s={12}/>...{waNumber(ph).slice(-4)}</button>
+                  ))}
+                </div>
               </div>
             );
           })}
