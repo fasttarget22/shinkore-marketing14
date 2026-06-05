@@ -23,7 +23,7 @@ console.log("[DEBUG] Admin pass:", import.meta.env.VITE_ADMIN_PASSWORD ? "loaded
 const hashPIN=async(pin)=>{const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(pin)));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");};
 const isHashed=(pin)=>typeof pin==="string"&&/^[0-9a-f]{64}$/.test(pin);
 const COMPANY = "Shinkore Marketing";
-const ADMIN_PHONES = (import.meta.env.VITE_ADMIN_PHONES||"").split(",").filter(Boolean);
+const ADMIN_PHONES = (import.meta.env.VITE_ADMIN_PHONES||"00923135443656,00923174886655,00923159279212").split(",").filter(Boolean);
 const GPS_RADIUS_M = 200;
 const sendDailySummary=(data)=>{
   const today=new Date().toISOString().slice(0,10);
@@ -135,16 +135,23 @@ const haversine = (lat1,lon1,lat2,lon2) => {
 };
 
 // ─── WHATSAPP ─────────────────────────────────────────────────────────────────
-const sendWA = (phone, msg) => {
+// Normalise any stored format to a bare international number for wa.me / CallMeBot.
+// "00923…" → "923…"  |  "03…" → "923…"  |  "923…" → "923…" (unchanged)
+const waNumber = (phone) => {
   const clean = phone.replace(/[^0-9]/g,"");
-  const num = clean.startsWith("0") ? "92"+clean.slice(1) : clean;
-  window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`,"_blank");
+  if (clean.startsWith("92")) return clean;
+  if (clean.startsWith("00")) return clean.slice(2);
+  if (clean.startsWith("0"))  return "92" + clean.slice(1);
+  return "92" + clean;
+};
+
+const sendWA = (phone, msg) => {
+  window.open(`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(msg)}`,"_blank");
 };
 
 const sendCallMeBot = async (phone, apiKey, msg) => {
   if (!apiKey) return false;
-  const clean = phone.replace(/[^0-9]/g,"");
-  const num = clean.startsWith("0") ? "92"+clean.slice(1) : clean;
+  const num = waNumber(phone);
   try {
     await fetch(`https://api.callmebot.com/whatsapp.php?phone=${num}&text=${encodeURIComponent(msg)}&apikey=${apiKey}`);
     return true;
@@ -467,7 +474,7 @@ function AdminDash({data,toast,setPage}){
                       "Bara-e-meharbani app mein apni aaj ki report foran submit karein.\n\n"+
                       "App: https://shinkore-marketing14.pages.dev\n— Khalid Orakzai";
                     sendWA(u.phone,msg);
-                    if(ADMIN_PHONES&&ADMIN_PHONES.length){sendWA(ADMIN_PHONES[0],"⚠️ Reminder sent to "+u.name+" — report not submitted for "+s.name+", "+s.city+".");}
+                    ADMIN_PHONES.forEach(ph=>sendWA(ph,"⚠️ Reminder sent to "+u.name+" — report not submitted for "+s.name+", "+s.city+"."));
                   }}><I n="wa" s={13}/>Remind</button>
                 </div>
               );
@@ -502,7 +509,7 @@ function AdminDash({data,toast,setPage}){
               );
             })}
             <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button onClick={function(){sendWA(ADMIN_PHONES[0],"ATTENDANCE ALERT\n"+alertPopup.msg+"\n\n"+alertPopup.details);setAlertPopup(null);}} style={{flex:1,background:"var(--rd)",border:"none",borderRadius:8,padding:8,cursor:"pointer",color:"#fff",fontSize:12,fontWeight:600}}>📤 Alert Khalid</button>
+              <button onClick={function(){ADMIN_PHONES.forEach(function(ph){sendWA(ph,"ATTENDANCE ALERT\n"+alertPopup.msg+"\n\n"+alertPopup.details);});setAlertPopup(null);}} style={{flex:1,background:"var(--rd)",border:"none",borderRadius:8,padding:8,cursor:"pointer",color:"#fff",fontSize:12,fontWeight:600}}>📤 Alert Khalid</button>
               <button onClick={function(){setAlertDismissed(function(prev){return prev.concat(alertPopup.absent.map(function(a){return a.user_id;}));});setAlertPopup(null);}} style={{flex:1,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:8,cursor:"pointer",color:"var(--txd)",fontSize:12}}>Dismiss</button>
             </div>
           </div>
@@ -518,7 +525,7 @@ function AdminDash({data,toast,setPage}){
           <div style={{fontWeight:700,fontSize:14,color:"var(--rd)"}}>{stuckReports.length} report{stuckReports.length!==1?"s":""} awaiting approval over 12h</div>
           <div style={{fontSize:12,color:"var(--txd)"}}>Tap to review and approve/reject so BAs aren't left waiting.</div>
         </div>
-        <button onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");sendWA(ADMIN_PHONES[0],"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);}} style={{background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"5px 10px",cursor:"pointer",color:"#25d366",fontSize:11,whiteSpace:"nowrap"}}>📤 Remind</button>
+        <button onClick={function(e){e.stopPropagation();var lines=stuckReports.map(function(a){var ba=(data.users||[]).find(function(u){return u.id===a.ba_id;});return (ba?ba.name:"?")+" — "+a.store_name+", "+a.city+" ("+a.date+")";}).join("\n");ADMIN_PHONES.forEach(function(ph){sendWA(ph,"⏰ STUCK REPORTS — pending approval over 12h:\n\n"+lines);});}} style={{background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,padding:"5px 10px",cursor:"pointer",color:"#25d366",fontSize:11,whiteSpace:"nowrap"}}>📤 Remind</button>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
         <div className="card">
