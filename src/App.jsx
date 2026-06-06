@@ -61,8 +61,43 @@ const getClientSettings=(client)=>{
       sampling: s.activities?.sampling??true,
       gifting:  s.activities?.gifting ??true,
       sales:    s.activities?.sales   ??true,
-    }
+    },
+    bonus: s.bonus||{metric:"units",tiers:[]},
   };
+};
+
+// Returns {workdays, doors, units, revenue} each {actual, target, pct} or null if no target row found.
+const calcAchievement=(campaign,ba_id,visits,items,targets,products)=>{
+  const target=targets.find(t=>t.campaign_id===campaign.id&&t.ba_id===ba_id);
+  if(!target)return null;
+  const today=new Date().toISOString().slice(0,10);
+  const periodEnd=campaign.end_date&&campaign.end_date<today?campaign.end_date:today;
+  const workdays=Math.max(1,Math.round((new Date(periodEnd)-new Date(campaign.start_date))/86400000)+1);
+  const baVisits=(visits||[]).filter(v=>v.campaign_id===campaign.id&&v.ba_id===ba_id);
+  const visitIds=new Set(baVisits.map(v=>v.id));
+  const saleItems=(items||[]).filter(i=>visitIds.has(i.visit_id)&&i.type==="sale");
+  const actualDoors=baVisits.length;
+  const actualUnits=saleItems.reduce((s,i)=>s+(Number(i.qty)||0),0);
+  const actualRevenue=saleItems.reduce((s,i)=>s+(Number(i.qty)||0)*((products||[]).find(p=>p.id===i.product_id)?.unit_price||0),0);
+  const doorTarget=(target.doors_per_day||0)*workdays;
+  const unitTarget=(target.units_per_day||0)*workdays;
+  const revTarget=target.revenue_target||0;
+  return{
+    workdays,
+    doors:{actual:actualDoors,target:doorTarget,pct:doorTarget>0?actualDoors/doorTarget*100:null},
+    units:{actual:actualUnits,target:unitTarget,pct:unitTarget>0?actualUnits/unitTarget*100:null},
+    revenue:{actual:actualRevenue,target:revTarget,pct:revTarget>0?actualRevenue/revTarget*100:null},
+  };
+};
+
+// Returns PKR earned (highest matching tier) or 0.  Returns 0 (invisible) when tiers empty.
+const calcBonus=(achievement,bonusCriteria)=>{
+  if(!achievement||!bonusCriteria||!(bonusCriteria.tiers||[]).length)return 0;
+  const metric=bonusCriteria.metric||"units";
+  const pct=achievement[metric]?.pct;
+  if(pct===null||pct===undefined)return 0;
+  const eligible=(bonusCriteria.tiers).filter(t=>pct>=Number(t.pct)).sort((a,b)=>Number(b.pct)-Number(a.pct));
+  return eligible.length?Number(eligible[0].amount):0;
 };
 
 // ─── DATA INIT ────────────────────────────────────────────────────────────────
@@ -2432,16 +2467,55 @@ function SalaryPage({data,setData,toast}){
   const [showAdd,setShowAdd]=useState(false);
   const [selUser,setSelUser]=useState("");
   const [f,setF]=useState({user_id:"",month:"",days_worked:"",daily_rate:"",bonus:"",deductions:"",notes:"",status:"pending"});
+  const [dtdBreakdown,setDtdBreakdown]=useState([]);
   const sf=(k,v)=>setF(p=>({...p,[k]:v}));
   const today=new Date().toLocaleDateString("en-PK",{year:"numeric",month:"long",day:"numeric"});
   const nonAdmin=(data.users||[]).filter(u=>u.role!=="admin");
+
+  // DTD data fetched once on mount for bonus pre-calculation
+  const [dtdData,setDtdData]=useState(null);
+  useEffect(()=>{
+    Promise.all([
+      SB.from("sm_campaigns").select("id,name,client_id,start_date,end_date,assigned_bas"),
+      SB.from("sm_door_visits").select("id,campaign_id,ba_id"),
+      SB.from("sm_door_items").select("visit_id,product_id,qty,type"),
+      SB.from("sm_campaign_targets").select("id,campaign_id,ba_id,doors_per_day,units_per_day,revenue_target"),
+      SB.from("sm_products").select("id,unit_price"),
+      SB.from("sm_clients").select("id,settings"),
+    ]).then(([r1,r2,r3,r4,r5,r6])=>{
+      setDtdData({
+        campaigns:r1.data||[],visits:r2.data||[],items:r3.data||[],
+        targets:r4.data||[],products:r5.data||[],clients:r6.data||[],
+      });
+    });
+  },[]);
+
+  const calcDTDBonus=(userId)=>{
+    if(!dtdData)return{total:0,breakdown:[]};
+    const{campaigns,visits,items,targets,products,clients}=dtdData;
+    const myCamps=campaigns.filter(c=>(c.assigned_bas||[]).includes(userId));
+    if(!myCamps.length)return{total:0,breakdown:[]};
+    let total=0;const breakdown=[];
+    myCamps.forEach(camp=>{
+      const client=clients.find(cl=>cl.id===camp.client_id);
+      const bonusCriteria=getClientSettings(client).bonus;
+      if(!(bonusCriteria.tiers||[]).length)return;
+      const ach=calcAchievement(camp,userId,visits,items,targets,products);
+      const earned=calcBonus(ach,bonusCriteria);
+      if(earned>0){total+=earned;breakdown.push({name:camp.name,earned});}
+    });
+    return{total,breakdown};
+  };
 
   const openAdd=(u)=>{
     const now=new Date();
     const mon=now.toLocaleDateString("en-PK",{month:"long",year:"numeric"});
     const att=(data.attendance||[]).filter(a=>a.user_id===u.id);
     const days=new Set(att.map(a=>a.date)).size;
-    setF({user_id:u.id,month:mon,days_worked:days||0,daily_rate:u.daily_rate||0,bonus:"",deductions:"",notes:"",status:"pending"});
+    const{total:dtdTotal,breakdown}=calcDTDBonus(u.id);
+    const autoNotes=breakdown.length?breakdown.map(b=>`${b.name}: PKR ${b.earned.toLocaleString()}`).join(", "):"";
+    setDtdBreakdown(breakdown);
+    setF({user_id:u.id,month:mon,days_worked:days||0,daily_rate:u.daily_rate||0,bonus:dtdTotal||"",deductions:"",notes:autoNotes,status:"pending"});
     setShowAdd(true);
   };
 
@@ -2521,6 +2595,7 @@ function SalaryPage({data,setData,toast}){
                       <div style={{flex:1}}>
                         <div style={{fontWeight:600,fontSize:13}}>{u.name}</div>
                         <div style={{fontSize:11,color:"var(--txd)"}}>{days} days worked · {formatPKR(u.daily_rate)}/day</div>
+                        {(()=>{const{total:dt}=calcDTDBonus(u.id);return dt>0?<div style={{fontSize:11,color:"var(--gr)",marginTop:2}}>DTD Bonus: PKR {dt.toLocaleString()}</div>:null;})()}
                         {u.bank_account&&<div style={{fontSize:11,color:"var(--g)",marginTop:2}}>💳 {u.bank_account}</div>}
                       </div>
                       <button className="bg" onClick={()=>openAdd(u)} style={{padding:"7px 12px",fontSize:12}}><I n="plus" s={13}/>Add</button>
@@ -2622,7 +2697,9 @@ function SalaryPage({data,setData,toast}){
               </div>
               <div className="frow">
                 <div className="fg"><label className="fl">Rate/Day (PKR)</label><input className="fi" type="number" value={f.daily_rate} onChange={e=>sf("daily_rate",e.target.value)}/></div>
-                <div className="fg"><label className="fl">Bonus (PKR)</label><input className="fi" type="number" value={f.bonus} onChange={e=>sf("bonus",e.target.value)} placeholder="0"/></div>
+                <div className="fg"><label className="fl">Bonus (PKR)</label><input className="fi" type="number" value={f.bonus} onChange={e=>sf("bonus",e.target.value)} placeholder="0"/>
+                  {dtdBreakdown.length>0&&<div style={{fontSize:11,color:"var(--gr)",marginTop:4}}>DTD auto-calculated: {dtdBreakdown.map(b=>`${b.name} PKR ${b.earned.toLocaleString()}`).join(" + ")}</div>}
+                </div>
               </div>
               <div className="frow">
                 <div className="fg"><label className="fl">Deductions (PKR)</label><input className="fi" type="number" value={f.deductions} onChange={e=>sf("deductions",e.target.value)} placeholder="0"/></div>
@@ -4989,13 +5066,18 @@ function ProductsPage({data,toast}){
 // ─── CLIENT CONTROL PANEL ─────────────────────────────────────────────────────
 function ClientControlPanelPage({data,setData,toast}){
   const clients=data.clients||[];
+  const [bonusEdits,setBonusEdits]=useState(()=>{
+    const m={};
+    (data.clients||[]).forEach(c=>{const b=getClientSettings(c).bonus;m[c.id]={metric:b.metric||"units",tiers:(b.tiers||[]).map(t=>({pct:String(t.pct),amount:String(t.amount)}))};});
+    return m;
+  });
+  const [bonusSaving,setBonusSaving]=useState({});
 
   const saveSettings=async(client,newSettings)=>{
     const updated=clients.map(c=>c.id===client.id?{...c,settings:newSettings}:c);
     const newData={...data,clients:updated};
     setData(newData);
     localStorage.setItem("shinkore_v2",JSON.stringify(newData));
-    // Upsert (not update) so the row is created in sm_clients if it doesn't exist yet
     const row={id:client.id,name:client.name||"",brand:client.brand||"",phone:client.phone||"",email:client.email||"",pin:client.pin||"",active:client.active!==false,settings:newSettings};
     const{error}=await SB.from("sm_clients").upsert([row],{onConflict:"id"});
     if(error) toast("Save failed: "+error.message);
@@ -5010,6 +5092,24 @@ function ClientControlPanelPage({data,setData,toast}){
     else ns={...ns,[path]:value};
     saveSettings(client,ns);
   };
+
+  const saveBonusCriteria=async(client)=>{
+    const edit=bonusEdits[client.id]||{metric:"units",tiers:[]};
+    const validTiers=edit.tiers.filter(t=>t.pct.trim()&&t.amount.trim()&&!isNaN(Number(t.pct))&&!isNaN(Number(t.amount)));
+    const sorted=[...validTiers].sort((a,b)=>Number(a.pct)-Number(b.pct));
+    const bonusObj={metric:edit.metric,tiers:sorted.map(t=>({pct:Number(t.pct),amount:Number(t.amount)}))};
+    const cs=getClientSettings(client);
+    setBonusSaving(p=>({...p,[client.id]:true}));
+    await saveSettings(client,{...cs,bonus:bonusObj});
+    setBonusSaving(p=>({...p,[client.id]:false}));
+    toast("Bonus criteria saved!");
+  };
+
+  const setBE=(clientId,updater)=>setBonusEdits(p=>({...p,[clientId]:updater(p[clientId]||{metric:"units",tiers:[]})}));
+  const setMetric=(clientId,metric)=>setBE(clientId,e=>({...e,metric}));
+  const addTier=(clientId)=>setBE(clientId,e=>({...e,tiers:[...e.tiers,{pct:"",amount:""}]}));
+  const removeTier=(clientId,idx)=>setBE(clientId,e=>({...e,tiers:e.tiers.filter((_,i)=>i!==idx)}));
+  const setTierField=(clientId,idx,key,val)=>setBE(clientId,e=>{const t=[...e.tiers];t[idx]={...t[idx],[key]:val};return{...e,tiers:t};});
 
   const Row=({label,val,onToggle})=>(
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid var(--bo)"}}>
@@ -5031,6 +5131,7 @@ function ClientControlPanelPage({data,setData,toast}){
       </div>
       {clients.map(client=>{
         const cs=getClientSettings(client);
+        const be=bonusEdits[client.id]||{metric:"units",tiers:[]};
         return(
           <div key={client.id} className="card" style={{marginBottom:12}}>
             <div className="ch">
@@ -5048,6 +5149,30 @@ function ClientControlPanelPage({data,setData,toast}){
               <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginTop:12,marginBottom:4}}>Requirements</div>
               <Row label="SOP checklist required at door visits" val={cs.sop_required} onToggle={v=>toggle(client,"sop_required",v)}/>
               <Row label="GPS capture required at door visits"   val={cs.gps_required} onToggle={v=>toggle(client,"gps_required",v)}/>
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginTop:12,marginBottom:8}}>Bonus Criteria</div>
+              <div style={{marginBottom:8}}>
+                <label className="fl">Achievement Metric</label>
+                <select className="fi" value={be.metric} onChange={e=>setMetric(client.id,e.target.value)}>
+                  <option value="units">Units (sale qty)</option>
+                  <option value="doors">Doors visited</option>
+                  <option value="revenue">Revenue (PKR)</option>
+                </select>
+              </div>
+              <div style={{fontSize:12,color:"var(--txd)",marginBottom:6}}>Tiers: if achievement ≥ %, BA earns the PKR amount (highest matching tier wins)</div>
+              {be.tiers.map((t,i)=>(
+                <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+                  <input className="fi" type="number" min="1" max="200" placeholder="%" value={t.pct}
+                    style={{width:70,textAlign:"center"}} onChange={e=>setTierField(client.id,i,"pct",e.target.value)}/>
+                  <span style={{fontSize:12,color:"var(--txd)",flexShrink:0}}>% →</span>
+                  <input className="fi" type="number" min="0" placeholder="PKR" value={t.amount}
+                    style={{flex:1}} onChange={e=>setTierField(client.id,i,"amount",e.target.value)}/>
+                  <button className="brd" style={{padding:"4px 8px",flexShrink:0}} onClick={()=>removeTier(client.id,i)}><I n="del" s={12}/></button>
+                </div>
+              ))}
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button className="bic" style={{fontSize:12}} onClick={()=>addTier(client.id)}><I n="plus" s={12}/>Add Tier</button>
+                <button className="bg" style={{fontSize:12}} onClick={()=>saveBonusCriteria(client)} disabled={bonusSaving[client.id]}>{bonusSaving[client.id]?"Saving…":"Save Bonus"}</button>
+              </div>
             </div>
           </div>
         );
@@ -5064,6 +5189,8 @@ function DTDAdminPage({data,toast}){
   const [items,setItems]=useState([]);
   const [clocks,setClocks]=useState([]);
   const [products,setProducts]=useState([]);
+  const [targets,setTargets]=useState([]);
+  const [clientSettings,setClientSettings]=useState({});
   const [loading,setLoading]=useState(true);
   const [expandedId,setExpandedId]=useState(null);
   const [filters,setFilters]=useState({campaign_id:"",client_id:"",ba_id:"",date_from:"",date_to:"",activity_type:""});
@@ -5072,12 +5199,14 @@ function DTDAdminPage({data,toast}){
 
   const loadAll=async()=>{
     setLoading(true);
-    const [r1,r2,r3,r4,r5]=await Promise.all([
+    const [r1,r2,r3,r4,r5,r6,r7]=await Promise.all([
       SB.from("sm_campaigns").select("id,client_id,name,type,start_date,end_date,assigned_bas,status").order("created_at",{ascending:false}),
       SB.from("sm_door_visits").select("id,campaign_id,ba_id,client_id,latitude,longitude,visit_time,customer_name,customer_phone,photo_url,sop_checklist").order("visit_time",{ascending:false}),
       SB.from("sm_door_items").select("id,visit_id,product_id,sku,product_name,qty,type"),
       SB.from("sm_dtd_clock").select("id,campaign_id,ba_id,clock_in,clock_out,work_date"),
       SB.from("sm_products").select("id,client_id,name,sku,unit_price"),
+      SB.from("sm_campaign_targets").select("id,campaign_id,ba_id,doors_per_day,units_per_day,revenue_target"),
+      SB.from("sm_clients").select("id,settings"),
     ]);
     if(r1.error){toast("Failed to load campaigns: "+r1.error.message);}
     else setCampaigns(r1.data||[]);
@@ -5089,6 +5218,11 @@ function DTDAdminPage({data,toast}){
     else setClocks(r4.data||[]);
     if(r5.error){toast("Failed to load products: "+r5.error.message);}
     else setProducts(r5.data||[]);
+    if(!r6.error){setTargets(r6.data||[]);}
+    if(!r7.error){
+      const m={};(r7.data||[]).forEach(c=>{m[c.id]=getClientSettings(c);});
+      setClientSettings(m);
+    }
     setLoading(false);
   };
   useEffect(()=>{loadAll();},[]);
@@ -5238,6 +5372,46 @@ function DTDAdminPage({data,toast}){
         <div style={cardStyle}><div style={cardNum}>{loading?"…":"PKR "+totalSales.toLocaleString()}</div><div style={cardLbl}>Sales Value</div></div>
         <div style={cardStyle}><div style={cardNum}>{loading?"…":activeBAsToday}</div><div style={cardLbl}>Active BAs Today</div></div>
       </div>
+
+      {/* Per-BA Achievement — only when a campaign is selected and it has tiers configured */}
+      {(()=>{
+        if(!filters.campaign_id||loading)return null;
+        const camp=campaigns.find(c=>c.id===filters.campaign_id);
+        if(!camp)return null;
+        const bonusCriteria=clientSettings[camp.client_id]?.bonus;
+        if(!bonusCriteria||(bonusCriteria.tiers||[]).length===0)return null;
+        const bas=(camp.assigned_bas||[]).map(baId=>(data.users||[]).find(u=>u.id===baId)).filter(Boolean);
+        if(bas.length===0)return null;
+        const metricLabel={units:"Units",doors:"Doors",revenue:"Revenue PKR"};
+        return(
+          <div className="card" style={{marginBottom:16}}>
+            <div className="ch"><I n="chart" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">BA Achievement</div><div className="cs">{camp.name} · Metric: {metricLabel[bonusCriteria.metric]||bonusCriteria.metric}</div></div></div>
+            <div className="cb">
+              {bas.map(ba=>{
+                const ach=calcAchievement(camp,ba.id,visits,items,targets,products);
+                if(!ach)return(<div key={ba.id} style={{padding:"8px 0",borderBottom:"1px solid var(--bo)",fontSize:13,color:"var(--txd)"}}>{ba.name} — No target set</div>);
+                const metric=bonusCriteria.metric||"units";
+                const{actual,target:tgt,pct}=ach[metric]||{};
+                const earned=calcBonus(ach,bonusCriteria);
+                const barPct=Math.min(pct||0,120);
+                const barColor=pct>=100?"var(--gr)":pct>=80?"#f39c12":"var(--rd)";
+                return(
+                  <div key={ba.id} style={{padding:"10px 0",borderBottom:"1px solid var(--bo)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:13,fontWeight:600}}>{ba.name}</span>
+                      <span style={{fontSize:12,color:"var(--txd)"}}>{actual??0} / {tgt??0} ({pct!==null?(pct.toFixed(0)+"%"):"—"})</span>
+                    </div>
+                    <div style={{height:6,borderRadius:3,background:"var(--d3)",overflow:"hidden",marginBottom:4}}>
+                      <div style={{height:"100%",width:barPct+"%",background:barColor,borderRadius:3,transition:"width .4s"}}/>
+                    </div>
+                    <div style={{fontSize:11,color:earned>0?"var(--gr)":"var(--txd)"}}>{earned>0?"Earned bonus: PKR "+earned.toLocaleString():"No bonus tier met yet"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Visits Table */}
       <div className="card">
@@ -5474,6 +5648,8 @@ function DTDDashPage({user,toast}){
   const [clientSop,setClientSop]=useState(null);
   const [sopChecks,setSopChecks]=useState({});
   const [clientSettings,setClientSettings]=useState(getClientSettings(null));
+  const [myTarget,setMyTarget]=useState(null);
+  const [allVisitItems,setAllVisitItems]=useState([]);
 
   const emptyForm=()=>({customer_name:"",customer_phone:"",photo_url:"",photoUploading:false,gps:null,gpsCapturing:false,gpsError:"",lines:[{product_id:"",sku:"",product_name:"",qty:1,type:"sale"}]});
   const [form,setForm]=useState(emptyForm());
@@ -5490,24 +5666,33 @@ function DTDDashPage({user,toast}){
   const loadCampaign=(c)=>{
     setActiveCampaign(c);
     setLoading(true);
+    setMyTarget(null);setAllVisitItems([]);
     Promise.all([
       SB.from("sm_products").select("*").eq("client_id",c.client_id),
       SB.from("sm_dtd_clock").select("*").eq("ba_id",user.id).eq("campaign_id",c.id).eq("work_date",today).limit(1),
       SB.from("sm_door_visits").select("*").eq("ba_id",user.id).eq("campaign_id",c.id),
-      SB.from("sm_clients").select("id,settings").eq("id",c.client_id).limit(1)
-    ]).then(([{data:prods},{data:clocks},{data:allVisits},{data:cRows}])=>{
-      setProducts(prods||[]);
-      setClientSettings(getClientSettings((cRows&&cRows[0])||null));
+      SB.from("sm_clients").select("id,settings").eq("id",c.client_id).limit(1),
+      SB.from("sm_campaign_targets").select("*").eq("campaign_id",c.id).eq("ba_id",user.id).limit(1),
+    ]).then(([{data:prods},{data:clocks},{data:allVisits},{data:cRows},{data:tRows}])=>{
+      const prods_=prods||[];
+      setProducts(prods_);
+      const cs=getClientSettings((cRows&&cRows[0])||null);
+      setClientSettings(cs);
       setClockRow((clocks&&clocks[0])||null);
+      setMyTarget((tRows&&tRows[0])||null);
       const todayV=(allVisits||[]).filter(v=>v.visit_time&&v.visit_time.startsWith(today));
       setVisits(todayV);
-      if(todayV.length>0){
-        const ids=todayV.map(v=>v.id);
-        SB.from("sm_door_items").select("visit_id").in("visit_id",ids).then(({data:items})=>{
+      const allV=allVisits||[];
+      if(allV.length>0){
+        const ids=allV.map(v=>v.id);
+        SB.from("sm_door_items").select("visit_id,product_id,qty,type").in("visit_id",ids).then(({data:items})=>{
+          setAllVisitItems(items||[]);
           const counts={};
-          (items||[]).forEach(item=>{counts[item.visit_id]=(counts[item.visit_id]||0)+1;});
+          (items||[]).filter(i=>todayV.some(v=>v.id===i.visit_id)).forEach(item=>{counts[item.visit_id]=(counts[item.visit_id]||0)+1;});
           setVisitItemCounts(counts);
         });
+      } else {
+        setAllVisitItems([]);
       }
       setLoading(false);
     });
@@ -5658,6 +5843,59 @@ function DTDDashPage({user,toast}){
       <div className="sg" style={{marginBottom:12}}>
         <div className="sc gold"><div className="si gold"><I n="users" s={17}/></div><div className="sv" style={{fontSize:22}}>{visits.length}</div><div className="sl">Doors Today</div></div>
       </div>
+
+      {/* Achievement progress — only shown when target exists AND client has bonus tiers */}
+      {(()=>{
+        const bonusCriteria=clientSettings.bonus;
+        if(!myTarget||!(bonusCriteria?.tiers||[]).length)return null;
+        const ach=calcAchievement(activeCampaign,user.id,
+          // build allVisits array from today visits + allVisitItems context
+          visits.map(v=>({...v,campaign_id:activeCampaign.id,ba_id:user.id})),
+          allVisitItems,
+          [myTarget],
+          products
+        );
+        // Re-fetch all visits not just today's for accurate campaign achievement
+        // allVisitItems is loaded from all visits so we need all visits too
+        // We stored allVisits inside loadCampaign but only kept todayV in `visits`.
+        // Use a separate local achievement based on items already fetched:
+        const metric=bonusCriteria.metric||"units";
+        const saleItems=allVisitItems.filter(i=>i.type==="sale");
+        const actualUnits=saleItems.reduce((s,i)=>s+(Number(i.qty)||0),0);
+        const actualRevenue=saleItems.reduce((s,i)=>s+(Number(i.qty)||0)*((products||[]).find(p=>p.id===i.product_id)?.unit_price||0),0);
+        // For doors we need total visit count across all days — stored via allVisitItems visit_ids
+        const uniqueVisitIds=new Set(allVisitItems.map(i=>i.visit_id));
+        const actualDoors=uniqueVisitIds.size||visits.length;
+        const periodEnd=activeCampaign.end_date&&activeCampaign.end_date<today?activeCampaign.end_date:today;
+        const workdays=Math.max(1,Math.round((new Date(periodEnd)-new Date(activeCampaign.start_date))/86400000)+1);
+        const doorTgt=(myTarget.doors_per_day||0)*workdays;
+        const unitTgt=(myTarget.units_per_day||0)*workdays;
+        const revTgt=myTarget.revenue_target||0;
+        const actuals={doors:{actual:actualDoors,target:doorTgt},units:{actual:actualUnits,target:unitTgt},revenue:{actual:actualRevenue,target:revTgt}};
+        const{actual,target:tgt}=actuals[metric]||{actual:0,target:0};
+        const pct=tgt>0?actual/tgt*100:null;
+        const barPct=Math.min(pct||0,120);
+        const barColor=pct>=100?"var(--gr)":pct>=80?"#f39c12":"var(--rd)";
+        const earned=calcBonus({doors:{pct:doorTgt>0?actualDoors/doorTgt*100:null},units:{pct:unitTgt>0?actualUnits/unitTgt*100:null},revenue:{pct:revTgt>0?actualRevenue/revTgt*100:null}},bonusCriteria);
+        const metricLabel={units:"Units",doors:"Doors",revenue:"Revenue PKR"};
+        return(
+          <div className="card" style={{marginBottom:12}}>
+            <div className="ch"><I n="chart" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">My Achievement</div><div className="cs">{metricLabel[metric]||metric} · {workdays} day{workdays!==1?"s":""} elapsed</div></div></div>
+            <div className="cb">
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
+                <span>{actual} / {tgt} {metric}</span>
+                <span style={{fontWeight:700,color:barColor}}>{pct!==null?pct.toFixed(0)+"%":"No target"}</span>
+              </div>
+              <div style={{height:8,borderRadius:4,background:"var(--d3)",overflow:"hidden",marginBottom:8}}>
+                <div style={{height:"100%",width:barPct+"%",background:barColor,borderRadius:4,transition:"width .4s"}}/>
+              </div>
+              <div style={{fontSize:13,fontWeight:600,color:earned>0?"var(--gr)":"var(--txd)"}}>
+                {earned>0?"🎉 Earned bonus: PKR "+earned.toLocaleString():"No bonus tier met yet — keep going!"}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* New visit button */}
       <button className="bg" onClick={openModal} disabled={!clockRow} style={{width:"100%",justifyContent:"center",marginBottom:clockRow?12:4,fontSize:15,padding:"12px",opacity:!clockRow?0.4:1}}>
