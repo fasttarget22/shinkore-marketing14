@@ -217,6 +217,10 @@ function Login({onLogin}){
   const [tab,setTab]=useState("in");
   const [f,setF]=useState({name:"",phone:"",role:"ba",daily_rate:"",pass:""});
   const [err,setErr]=useState("");
+  const [showAccess,setShowAccess]=useState(false);
+  const [accessCode,setAccessCode]=useState("");
+  const [accessErr,setAccessErr]=useState("");
+  const [accessLoading,setAccessLoading]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const data=initData();
 
@@ -245,6 +249,21 @@ function Login({onLogin}){
     onLogin(u);
   };
 
+  const doEnterPortal=async()=>{
+    const code=accessCode.trim().toUpperCase();
+    if(!code){setAccessErr("Enter your access code.");return;}
+    setAccessLoading(true);setAccessErr("");
+    const{data:rows,error}=await SB.from("sm_clients")
+      .select("id,name,brand,phone,email,active,settings,access_code")
+      .eq("access_code",code)
+      .not("access_code","is",null)
+      .limit(1);
+    setAccessLoading(false);
+    if(error||!rows||rows.length===0){setAccessErr("Invalid access code. Try again.");return;}
+    const{access_code:_,...session}=rows[0];
+    onLogin({...session,role:"client",login_method:"access_code"});
+  };
+
   return(
     <div className="lw">
       <div className="lc">
@@ -252,11 +271,28 @@ function Login({onLogin}){
           <img src="https://i.postimg.cc/y6SVx0cx/FB-IMG-1779977314597.jpg" alt="Logo" style={{width:56,height:56,borderRadius:12,objectFit:"cover",border:"2px solid rgba(201,168,76,.5)",boxShadow:"0 4px 16px rgba(201,168,76,.2)",flexShrink:0}}/>
           <div><h1>SHINKORE</h1><p>Marketing Operations</p></div>
         </div>
-        <div style={{textAlign:"center",marginBottom:8,fontSize:12,color:"var(--txd)"}}>Sign in with your phone and PIN provided by admin</div>
-        {err&&<div className="info info-err" style={{marginBottom:14}}><I n="alert" s={15}/>{err}</div>}
-        <div className="fg"><label className="fl">Phone Number</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
-            <div className="fg"><label className="fl">PIN / Password</label><input className="fi" type="password" placeholder="Enter your PIN" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
-            <button className="bp" onClick={doIn}>SIGN IN →</button>
+        {!showAccess&&<>
+          <div style={{textAlign:"center",marginBottom:8,fontSize:12,color:"var(--txd)"}}>Sign in with your phone and PIN provided by admin</div>
+          {err&&<div className="info info-err" style={{marginBottom:14}}><I n="alert" s={15}/>{err}</div>}
+          <div className="fg"><label className="fl">Phone Number</label><input className="fi" placeholder="03001234567" value={f.phone} onChange={e=>set("phone",e.target.value)}/></div>
+          <div className="fg"><label className="fl">PIN / Password</label><input className="fi" type="password" placeholder="Enter your PIN" value={f.pass} onChange={e=>set("pass",e.target.value)}/></div>
+          <button className="bp" onClick={doIn}>SIGN IN →</button>
+          <div style={{textAlign:"center",margin:"14px 0 4px",fontSize:12,color:"var(--txd)"}}>— or —</div>
+          <button className="bs" style={{width:"100%",justifyContent:"center",fontSize:13}} onClick={()=>{setShowAccess(true);setErr("");}}>🔑 Client Portal — Enter Access Code</button>
+        </>}
+        {showAccess&&<>
+          <div style={{textAlign:"center",marginBottom:12,fontSize:13,color:"var(--txd)"}}>Enter your 6-character client access code</div>
+          {accessErr&&<div className="info info-err" style={{marginBottom:10}}><I n="alert" s={14}/>{accessErr}</div>}
+          <div className="fg">
+            <label className="fl">Access Code</label>
+            <input className="fi" placeholder="e.g. K7X2M9" value={accessCode} maxLength={6}
+              style={{textTransform:"uppercase",letterSpacing:6,fontFamily:"monospace",fontSize:20,textAlign:"center"}}
+              onChange={e=>setAccessCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))}
+              onKeyDown={e=>e.key==="Enter"&&doEnterPortal()}/>
+          </div>
+          <button className="bp" onClick={doEnterPortal} disabled={accessLoading}>{accessLoading?"Verifying…":"ENTER PORTAL →"}</button>
+          <button className="bs" style={{width:"100%",justifyContent:"center",marginTop:8,fontSize:12}} onClick={()=>{setShowAccess(false);setAccessErr("");setAccessCode("");}}>← Back to staff login</button>
+        </>}
       </div>
     </div>
   );
@@ -320,6 +356,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
   ];
   const clientNav=[
     {id:"client_dash",icon:"dash",label:"My Dashboard"},
+    {id:"client_portal",icon:"chart",label:"DTD Activity"},
   ];
   const nav=isAdmin?adminNav:user.role==="client"?clientNav:staffNav;
   return(
@@ -3314,6 +3351,36 @@ function ClientsPage({user,data,setData,toast}){
   const emptyC={name:"",brand:"",phone:"",email:"",pin:"",active:true};
   const [f,setF]=useState(emptyC);
   const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const [accessCodes,setAccessCodes]=useState({});
+  const [acLoading,setAcLoading]=useState({});
+
+  useEffect(()=>{
+    SB.from("sm_clients").select("id,access_code").then(({data:rows})=>{
+      if(!rows)return;
+      const map={};rows.forEach(r=>{map[r.id]=r.access_code||null;});
+      setAccessCodes(map);
+    });
+  },[]);
+
+  const doGenerate=async(client)=>{
+    const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const newCode=Array.from({length:6},()=>chars[Math.floor(Math.random()*chars.length)]).join("");
+    setAcLoading(p=>({...p,[client.id]:true}));
+    const{data:updated,error:upErr}=await SB.from("sm_clients").update({access_code:newCode}).eq("id",client.id).select("id");
+    if(upErr){setAcLoading(p=>({...p,[client.id]:false}));toast("Failed to generate code.");return;}
+    if(!updated||updated.length===0){
+      const{error:insErr}=await SB.from("sm_clients").insert([{id:client.id,name:client.name,brand:client.brand||"",phone:client.phone||"",email:client.email||"",pin:client.pin||"",active:client.active!==false,settings:{},access_code:newCode}]);
+      if(insErr){setAcLoading(p=>({...p,[client.id]:false}));toast("Failed to generate code.");return;}
+    }
+    setAccessCodes(p=>({...p,[client.id]:newCode}));
+    setAcLoading(p=>({...p,[client.id]:false}));
+    toast("Access code generated!");
+  };
+
+  const doCopy=async(code)=>{
+    try{await navigator.clipboard.writeText(code);toast("Copied!");}
+    catch{toast("Copy failed — select and copy manually.");}
+  };
 
   const doSave=()=>{
     if(!f.name||!f.brand)return toast("Name and brand required.");
@@ -3355,9 +3422,18 @@ function ClientsPage({user,data,setData,toast}){
               <div style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>Interceptions</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--bl)"}}>{totalInterceptions}</div></div>
               <div style={{textAlign:"center",background:"var(--d3)",borderRadius:8,padding:"8px 4px"}}><div style={{fontSize:10,color:"var(--txd)"}}>Sales KG</div><div style={{fontFamily:"Rajdhani",fontSize:20,color:"var(--gr)"}}>{totalSalesKg}</div></div>
             </div>
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
               <button className="bs" onClick={()=>{setEditing(client);setF({name:client.name,brand:client.brand,phone:client.phone||"",email:client.email||"",pin:client.pin||"",active:client.active});setShow(true);}} style={{fontSize:12}}><I n="edit" s={13}/>Edit</button>
               <button className="bw" onClick={()=>sendWA(client.phone,"Hello "+client.name+", this is Shinkore Marketing. Here is a summary of your brand "+client.brand+" activities: "+acts.length+" activities completed, "+totalInterceptions+" interceptions, "+totalSalesKg+"kg sales.")} style={{fontSize:12}}><I n="wa" s={13}/>Send Summary</button>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--d3)",borderRadius:10,padding:"8px 12px"}}>
+              <I n="key" s={14} c="var(--g)"/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5}}>Access Code</div>
+                <div style={{fontFamily:"monospace",fontSize:16,letterSpacing:3,fontWeight:700,color:accessCodes[client.id]?"var(--g)":"var(--txd)"}}>{accessCodes[client.id]||"No code set"}</div>
+              </div>
+              {accessCodes[client.id]&&<button className="bic" style={{fontSize:12,padding:"4px 10px"}} onClick={()=>doCopy(accessCodes[client.id])}>Copy</button>}
+              <button className="bic" style={{fontSize:12,padding:"4px 10px"}} onClick={()=>doGenerate(client)} disabled={acLoading[client.id]}>{acLoading[client.id]?"…":accessCodes[client.id]?"Regen":"Generate"}</button>
             </div>
           </div>
         );
@@ -3850,6 +3926,146 @@ function ClientStoreMap({client,data}){
 }
 
 // ─── CLIENT DASHBOARD V2 ──────────────────────────────────────────────────────
+// ─── CLIENT PORTAL (DTD + STALLS VIEW) ───────────────────────────────────────
+function ClientPortalPage({user,data,toast}){
+  const today=new Date().toISOString().slice(0,10);
+  const [campaigns,setCampaigns]=useState([]);
+  const [visits,setVisits]=useState([]);
+  const [items,setItems]=useState([]);
+  const [stalls,setStalls]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{loadAll();},[]);
+
+  const loadAll=async()=>{
+    setLoading(true);
+    const{data:campData,error:e1}=await SB.from("sm_campaigns").select("id,name,start_date,end_date,status").eq("client_id",user.id);
+    if(e1){toast("Failed to load campaigns.");setLoading(false);return;}
+    const camps=campData||[];
+    setCampaigns(camps);
+    const campIds=camps.map(c=>c.id);
+
+    let visitRows=[],itemRows=[];
+    if(campIds.length>0){
+      const{data:vData}=await SB.from("sm_door_visits")
+        .select("id,campaign_id,ba_id,visit_time,customer_name")
+        .in("campaign_id",campIds)
+        .order("visit_time",{ascending:false})
+        .limit(50);
+      visitRows=vData||[];
+      if(visitRows.length>0){
+        const vIds=visitRows.map(v=>v.id);
+        const{data:iData}=await SB.from("sm_door_items").select("visit_id,qty,type").in("visit_id",vIds);
+        itemRows=iData||[];
+      }
+    }
+    setVisits(visitRows);
+    setItems(itemRows);
+
+    const{data:stallData}=await SB.from("sm_stalls").select("id,name,city,from_date,to_date,client").ilike("client",user.name);
+    setStalls(stallData||[]);
+    setLoading(false);
+  };
+
+  const baFirstName=(baId)=>{const u=(data.users||[]).find(x=>x.id===baId);return u?u.name.split(" ")[0]:"Staff";};
+  const visitItemCount=(vid)=>items.filter(i=>i.visit_id===vid).length;
+  const activeStalls=stalls.filter(s=>s.from_date&&s.to_date&&s.from_date<=today&&s.to_date>=today).length;
+
+  const stallStatus=(s)=>{
+    if(!s.from_date||!s.to_date) return{label:"Unknown",color:"var(--txd)"};
+    if(s.from_date>today) return{label:"Upcoming",color:"#3498db"};
+    if(s.to_date<today) return{label:"Ended",color:"var(--txd)"};
+    return{label:"Active",color:"var(--gr)"};
+  };
+
+  const cardStyle={background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",flex:1,minWidth:120};
+  const thStyle={textAlign:"left",padding:"8px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:.5};
+  const tdStyle={padding:"8px 10px",fontSize:13,borderTop:"1px solid var(--bo)"};
+
+  return(
+    <div>
+      <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
+        <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🏢</div>
+        <div>
+          <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
+          <div style={{fontSize:13,color:"var(--txd)"}}>Brand: {user.brand||"—"} · Client Portal</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":visits.length}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Doors Visited</div></div>
+        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":items.length}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Items Distributed</div></div>
+        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":activeStalls}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Active Stalls</div></div>
+      </div>
+
+      {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading your data…</div></div>}
+
+      {!loading&&<>
+        <div className="card" style={{marginBottom:16}}>
+          <div className="ch"><I n="map" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{visits.length} visits (last 50)</div></div></div>
+          <div className="cb">
+            {visits.length===0
+              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>
+                  <div style={{fontSize:36,marginBottom:8}}>📭</div>
+                  <div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>{campaigns.length===0?"No active campaigns yet":"No door visits recorded yet"}</div>
+                </div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr>
+                    <th style={thStyle}>Date</th><th style={thStyle}>Time</th><th style={thStyle}>Customer</th>
+                    <th style={{...thStyle,textAlign:"center"}}>Items</th><th style={thStyle}>Field Rep</th>
+                  </tr></thead>
+                  <tbody>{visits.map(v=>{
+                    const dt=new Date(v.visit_time);
+                    return(<tr key={v.id}>
+                      <td style={tdStyle}>{dt.toLocaleDateString("en-GB")}</td>
+                      <td style={tdStyle}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
+                      <td style={tdStyle}>{v.customer_name}</td>
+                      <td style={{...tdStyle,textAlign:"center"}}>{visitItemCount(v.id)}</td>
+                      <td style={tdStyle}>{baFirstName(v.ba_id)}</td>
+                    </tr>);
+                  })}</tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="ch"><I n="pin" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Your Stalls</div><div className="cs">{stalls.length} stalls</div></div></div>
+          <div className="cb">
+            {stalls.length===0
+              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>
+                  <div style={{fontSize:36,marginBottom:8}}>📍</div>
+                  <div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>No stalls assigned yet</div>
+                </div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr>
+                    <th style={thStyle}>Location</th><th style={thStyle}>City</th>
+                    <th style={thStyle}>Dates</th><th style={{...thStyle,textAlign:"center"}}>Status</th>
+                  </tr></thead>
+                  <tbody>{stalls.map(s=>{
+                    const st=stallStatus(s);
+                    return(<tr key={s.id}>
+                      <td style={tdStyle}>{s.name}</td>
+                      <td style={tdStyle}>{s.city||"—"}</td>
+                      <td style={tdStyle}>{s.from_date||"?"} → {s.to_date||"?"}</td>
+                      <td style={{...tdStyle,textAlign:"center"}}>
+                        <span style={{fontSize:11,padding:"2px 10px",borderRadius:20,fontWeight:600,color:st.color,border:"1px solid "+st.color,background:st.color+"22"}}>{st.label}</span>
+                      </td>
+                    </tr>);
+                  })}</tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function ClientDashPage({user,data,toast}){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [tab,setTab]=useState("overview");
@@ -5584,7 +5800,7 @@ function DTDDashPage({user,toast}){
 export default function App(){
   const getSaved=()=>{try{const s=localStorage.getItem("shinkore_session");if(!s)return null;const u=JSON.parse(s);if(u&&u.pin!==undefined){const{pin:_,...clean}=u;localStorage.setItem("shinkore_session",JSON.stringify(clean));return clean;}return u;}catch{return null;}};
   const [user,setUser]=useState(getSaved);
-  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="supervisor"?"my-dash":u.role==="client"?"client_dash":"my-dash"):"dash";});
+  const [page,setPage]=useState(()=>{const u=getSaved();return u?(u.role==="admin"?"dash":u.role==="client"?(u.login_method==="access_code"?"client_portal":"client_dash"):"my-dash"):"dash";});
   
   
   const [data,setData]=useState(initData());
@@ -5640,9 +5856,9 @@ export default function App(){
 
   const toast=(m)=>setToastMsg(m);
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
-  const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":"my-dash");};
+  const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":sessionSafe.role==="client"?(sessionSafe.login_method==="access_code"?"client_portal":"client_dash"):"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -5680,7 +5896,11 @@ export default function App(){
         default: return <AdminDash data={data} toast={toast} setPage={setPage}/>;
       }
     } else if(user.role==="client"){
-      return <ClientDashPage user={user} data={data} toast={toast}/>;
+      switch(page){
+        case "client_dash": return <ClientDashPage user={user} data={data} toast={toast}/>;
+        case "client_portal": return <ClientPortalPage user={user} data={data} toast={toast}/>;
+        default: return <ClientPortalPage user={user} data={data} toast={toast}/>;
+      }
     } else {
       switch(page){
         case "my-dash": return <MyDash user={user} data={data} setPage={setPage}/>;
