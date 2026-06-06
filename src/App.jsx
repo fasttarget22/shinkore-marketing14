@@ -5724,9 +5724,19 @@ function CareersPage({data,toast}){
     toast(`Job marked ${next}.`);
   };
 
-  const setAppStatus=async(jobId,appId,status)=>{
+  const setAppStatus=async(jobId,appId,status,app,job)=>{
     await SB.from("sm_applications").update({status}).eq("id",appId);
     setApps(p=>({...p,[jobId]:(p[jobId]||[]).map(a=>a.id===appId?{...a,status}:a)}));
+    if(app&&job&&app.phone&&status!=="new"){
+      const nm=app.name||"there";const ti=job.title||"the position";
+      const msgs={
+        contacted:"Hi "+nm+", thank you for applying for "+ti+" at Shinkore Marketing. We'd like to discuss your application.",
+        shortlisted:"Hi "+nm+", great news! You've been shortlisted for "+ti+" at Shinkore Marketing. We'll be in touch with next steps soon.",
+        rejected:"Hi "+nm+", thank you for applying for "+ti+" at Shinkore Marketing. We have decided to proceed with other candidates this time. We wish you the best.",
+        hired:"Hi "+nm+", congratulations! You have been selected for "+ti+" at Shinkore Marketing. Please contact us to confirm your joining details."
+      };
+      if(msgs[status]) sendWA(app.phone,msgs[status]);
+    }
   };
 
   const copyLink=(id)=>{
@@ -5811,7 +5821,7 @@ function CareersPage({data,toast}){
                               </div>
                             </div>
                             <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                              <select value={app.status||"new"} onChange={e=>setAppStatus(job.id,app.id,e.target.value)} style={{fontSize:12,padding:"4px 8px",borderRadius:7,border:"1px solid var(--bo)",background:"var(--d4)",color:appStatusColor[app.status||"new"]||"var(--tx)",outline:"none"}}>
+                              <select value={app.status||"new"} onChange={e=>setAppStatus(job.id,app.id,e.target.value,app,job)} style={{fontSize:12,padding:"4px 8px",borderRadius:7,border:"1px solid var(--bo)",background:"var(--d4)",color:appStatusColor[app.status||"new"]||"var(--tx)",outline:"none"}}>
                                 <option value="new">New</option>
                                 <option value="contacted">Contacted</option>
                                 <option value="shortlisted">Shortlisted</option>
