@@ -201,6 +201,7 @@ const I = ({n,s=18,c="currentColor"}) => {
     user:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
     box:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27,6.96 12,12.01 20.73,6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
     flag:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
+    chart:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>,
   };
   return m[n]||null;
 };
@@ -283,6 +284,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"control-panel",icon:"set",label:"Control Panel"},
     {id:"products",icon:"box",label:"Products"},
     {id:"campaigns",icon:"flag",label:"Campaigns"},
+    {id:"dtd-admin",icon:"chart",label:"DTD Reports"},
     {id:"sops",icon:"pdf",label:"SOP Manager"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
@@ -4838,6 +4840,318 @@ function ClientControlPanelPage({data,setData,toast}){
   );
 }
 
+// ─── DTD ADMIN DASHBOARD ──────────────────────────────────────────────────────
+function DTDAdminPage({data,toast}){
+  const today=new Date().toISOString().slice(0,10);
+  const [campaigns,setCampaigns]=useState([]);
+  const [visits,setVisits]=useState([]);
+  const [items,setItems]=useState([]);
+  const [clocks,setClocks]=useState([]);
+  const [products,setProducts]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [expandedId,setExpandedId]=useState(null);
+  const [filters,setFilters]=useState({campaign_id:"",client_id:"",ba_id:"",date_from:"",date_to:"",activity_type:""});
+  const setF=(k,v)=>setFilters(f=>({...f,[k]:v}));
+  const clearFilters=()=>setFilters({campaign_id:"",client_id:"",ba_id:"",date_from:"",date_to:"",activity_type:""});
+
+  const loadAll=async()=>{
+    setLoading(true);
+    const [r1,r2,r3,r4,r5]=await Promise.all([
+      SB.from("sm_campaigns").select("id,client_id,name,type,start_date,end_date,assigned_bas,status").order("created_at",{ascending:false}),
+      SB.from("sm_door_visits").select("id,campaign_id,ba_id,client_id,latitude,longitude,visit_time,customer_name,customer_phone,photo_url,sop_checklist").order("visit_time",{ascending:false}),
+      SB.from("sm_door_items").select("id,visit_id,product_id,sku,product_name,qty,type"),
+      SB.from("sm_dtd_clock").select("id,campaign_id,ba_id,clock_in,clock_out,work_date"),
+      SB.from("sm_products").select("id,client_id,name,sku,unit_price"),
+    ]);
+    if(r1.error){toast("Failed to load campaigns: "+r1.error.message);}
+    else setCampaigns(r1.data||[]);
+    if(r2.error){toast("Failed to load visits: "+r2.error.message);}
+    else setVisits(r2.data||[]);
+    if(r3.error){toast("Failed to load items: "+r3.error.message);}
+    else setItems(r3.data||[]);
+    if(r4.error){toast("Failed to load clock records: "+r4.error.message);}
+    else setClocks(r4.data||[]);
+    if(r5.error){toast("Failed to load products: "+r5.error.message);}
+    else setProducts(r5.data||[]);
+    setLoading(false);
+  };
+  useEffect(()=>{loadAll();},[]);
+
+  const userName=(id)=>(data.users||[]).find(u=>u.id===id)?.name||"Unknown";
+  const clientName=(id)=>(data.clients||[]).find(c=>c.id===id)?.name||"—";
+  const productPrice=(pid)=>(products.find(p=>p.id===pid)?.unit_price)||0;
+
+  // --- filtered visits (client-side) ---
+  const filteredVisits=visits.filter(v=>{
+    if(filters.campaign_id&&v.campaign_id!==filters.campaign_id) return false;
+    if(filters.client_id){
+      const camp=campaigns.find(c=>c.id===v.campaign_id);
+      if(!camp||camp.client_id!==filters.client_id) return false;
+    }
+    if(filters.ba_id&&v.ba_id!==filters.ba_id) return false;
+    if(filters.date_from&&v.visit_time.slice(0,10)<filters.date_from) return false;
+    if(filters.date_to&&v.visit_time.slice(0,10)>filters.date_to) return false;
+    if(filters.activity_type){
+      const vItems=items.filter(i=>i.visit_id===v.id);
+      if(!vItems.some(i=>i.type===filters.activity_type)) return false;
+    }
+    return true;
+  });
+
+  const visitIds=new Set(filteredVisits.map(v=>v.id));
+  const filteredItems=items.filter(i=>visitIds.has(i.visit_id));
+
+  // --- summary cards ---
+  const totalDoors=filteredVisits.length;
+  const totalItems=filteredItems.length;
+  const totalSales=filteredItems.filter(i=>i.type==="sale").reduce((sum,i)=>sum+i.qty*productPrice(i.product_id),0);
+  const activeBAsToday=new Set(clocks.filter(c=>c.work_date===today&&c.clock_in).map(c=>c.ba_id)).size;
+
+  // --- per-visit helpers ---
+  const visitItems=(vid)=>items.filter(i=>i.visit_id===vid);
+  const visitItemCount=(vid)=>visitItems(vid).length;
+  const visitActivityTypes=(vid)=>{
+    const types=[...new Set(visitItems(vid).map(i=>i.type))].filter(Boolean);
+    return types.length?types.map(t=>t.charAt(0).toUpperCase()+t.slice(1)).join(", "):"—";
+  };
+
+  // --- CSV export ---
+  const doExport=()=>{
+    if(filteredVisits.length===0){toast("No visits to export.");return;}
+    const headers=["Date","Time","BA Name","Client","Customer Name","Customer Phone","Items Count","Sales Value (PKR)"];
+    const rows=filteredVisits.map(v=>{
+      const camp=campaigns.find(c=>c.id===v.campaign_id);
+      const vIt=visitItems(v.id);
+      const sales=vIt.filter(i=>i.type==="sale").reduce((s,i)=>s+i.qty*productPrice(i.product_id),0);
+      const dt=new Date(v.visit_time);
+      return[
+        dt.toLocaleDateString("en-GB"),
+        dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),
+        userName(v.ba_id),
+        camp?clientName(camp.client_id):"—",
+        v.customer_name,
+        v.customer_phone,
+        vIt.length,
+        sales,
+      ].map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",");
+    });
+    const csv=[headers.join(","),...rows].join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download=`dtd_visits_${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("CSV exported.");
+  };
+
+  const tableVisits=filteredVisits.slice(0,100);
+
+  // --- unique lists for filter dropdowns ---
+  const allBAs=(data.users||[]).filter(u=>u.role==="ba"||u.role==="supervisor");
+  const allClients=data.clients||[];
+
+  const cardStyle={background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",flex:1,minWidth:130};
+  const cardNum={fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1};
+  const cardLbl={fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5};
+  const thStyle={textAlign:"left",padding:"8px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap"};
+  const tdStyle={padding:"8px 10px",fontSize:13,verticalAlign:"middle",borderTop:"1px solid var(--bo)"};
+  const typeBadge=(t)=>{
+    const colors={sale:"rgba(46,204,113,.15)",sample:"rgba(52,152,219,.15)",gift:"rgba(155,89,182,.15)",return:"rgba(231,76,60,.15)"};
+    const text={sale:"var(--gr)",sample:"#3498db",gift:"#9b59b6",return:"var(--rd)"};
+    return<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:colors[t]||"var(--d3)",color:text[t]||"var(--tx)",fontWeight:600}}>{t?t.charAt(0).toUpperCase()+t.slice(1):"—"}</span>;
+  };
+
+  return(
+    <div>
+      {/* Filters */}
+      <div className="card" style={{marginBottom:16}}>
+        <div className="ch"><I n="chart" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">DTD Reports</div><div className="cs">Monitor all door-to-door campaign activity</div></div>
+          <button className="bg" onClick={loadAll} disabled={loading} style={{marginRight:8}}><I n="sync" s={14}/>Refresh</button>
+          <button className="bg" onClick={doExport}><I n="pdf" s={14}/>Export CSV</button>
+        </div>
+        <div className="cb">
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            <div className="fg" style={{margin:0,flex:"1 1 160px"}}>
+              <label className="fl">Campaign</label>
+              <select className="fi" value={filters.campaign_id} onChange={e=>setF("campaign_id",e.target.value)}>
+                <option value="">All Campaigns</option>
+                {campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="fg" style={{margin:0,flex:"1 1 140px"}}>
+              <label className="fl">Client</label>
+              <select className="fi" value={filters.client_id} onChange={e=>setF("client_id",e.target.value)}>
+                <option value="">All Clients</option>
+                {allClients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="fg" style={{margin:0,flex:"1 1 140px"}}>
+              <label className="fl">BA / Staff</label>
+              <select className="fi" value={filters.ba_id} onChange={e=>setF("ba_id",e.target.value)}>
+                <option value="">All Staff</option>
+                {allBAs.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div className="fg" style={{margin:0,flex:"1 1 130px"}}>
+              <label className="fl">From Date</label>
+              <input className="fi" type="date" value={filters.date_from} onChange={e=>setF("date_from",e.target.value)}/>
+            </div>
+            <div className="fg" style={{margin:0,flex:"1 1 130px"}}>
+              <label className="fl">To Date</label>
+              <input className="fi" type="date" value={filters.date_to} onChange={e=>setF("date_to",e.target.value)}/>
+            </div>
+            <div className="fg" style={{margin:0,flex:"1 1 130px"}}>
+              <label className="fl">Activity Type</label>
+              <select className="fi" value={filters.activity_type} onChange={e=>setF("activity_type",e.target.value)}>
+                <option value="">All Types</option>
+                <option value="sale">Sale</option>
+                <option value="sample">Sample</option>
+                <option value="gift">Gift</option>
+                <option value="return">Return</option>
+              </select>
+            </div>
+            <button className="bic" onClick={clearFilters} title="Clear filters" style={{height:38,padding:"0 14px",fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Clear Filters</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+        <div style={cardStyle}><div style={cardNum}>{loading?"…":totalDoors}</div><div style={cardLbl}>Doors Visited</div></div>
+        <div style={cardStyle}><div style={cardNum}>{loading?"…":totalItems}</div><div style={cardLbl}>Items Distributed</div></div>
+        <div style={cardStyle}><div style={cardNum}>{loading?"…":"PKR "+totalSales.toLocaleString()}</div><div style={cardLbl}>Sales Value</div></div>
+        <div style={cardStyle}><div style={cardNum}>{loading?"…":activeBAsToday}</div><div style={cardLbl}>Active BAs Today</div></div>
+      </div>
+
+      {/* Visits Table */}
+      <div className="card">
+        <div className="ch">
+          <I n="map" s={17} c="var(--g)"/>
+          <div style={{flex:1}}><div className="ct">Visit Log</div><div className="cs">{loading?"Loading…":`${filteredVisits.length} visit${filteredVisits.length!==1?"s":""} ${filteredVisits.length>100?"(showing first 100)":""}`}</div></div>
+        </div>
+        <div className="cb">
+          {loading&&<div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading visits…</div>}
+          {!loading&&filteredVisits.length===0&&(
+            <div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>
+              <div style={{fontSize:36,marginBottom:8}}>📭</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:600}}>{visits.length===0?"No visits recorded yet":"No visits match the current filters"}</div>
+              <div style={{fontSize:13,marginTop:4}}>{visits.length===0?"Visits will appear here once BAs start logging door-to-door activity.":"Try adjusting or clearing the filters above."}</div>
+            </div>
+          )}
+          {!loading&&filteredVisits.length>0&&(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Time</th>
+                    <th style={thStyle}>BA</th>
+                    <th style={thStyle}>Client</th>
+                    <th style={thStyle}>Customer</th>
+                    <th style={thStyle}>Phone</th>
+                    <th style={{...thStyle,textAlign:"center"}}>Items</th>
+                    <th style={thStyle}>Activity</th>
+                    <th style={{...thStyle,textAlign:"center"}}>GPS</th>
+                    <th style={{...thStyle,textAlign:"center"}}>SOP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableVisits.map(v=>{
+                    const camp=campaigns.find(c=>c.id===v.campaign_id);
+                    const dt=new Date(v.visit_time);
+                    const isExp=expandedId===v.id;
+                    const vItems=visitItems(v.id);
+                    const sopItems=v.sop_checklist;
+                    return(
+                      <React.Fragment key={v.id}>
+                        <tr onClick={()=>setExpandedId(isExp?null:v.id)} style={{cursor:"pointer",background:isExp?"var(--d3)":"transparent",transition:"background .15s"}}>
+                          <td style={tdStyle}>{dt.toLocaleDateString("en-GB")}</td>
+                          <td style={tdStyle}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
+                          <td style={tdStyle}>{userName(v.ba_id)}</td>
+                          <td style={tdStyle}>{camp?clientName(camp.client_id):"—"}</td>
+                          <td style={tdStyle}>{v.customer_name}</td>
+                          <td style={tdStyle}>{v.customer_phone}</td>
+                          <td style={{...tdStyle,textAlign:"center"}}>{visitItemCount(v.id)}</td>
+                          <td style={tdStyle}>{visitActivityTypes(v.id)}</td>
+                          <td style={{...tdStyle,textAlign:"center"}}>
+                            {v.latitude&&v.longitude
+                              ?<a href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{textDecoration:"none",fontSize:16}}>📍</a>
+                              :"—"}
+                          </td>
+                          <td style={{...tdStyle,textAlign:"center"}}>
+                            {sopItems&&sopItems.length>0
+                              ?<span title={`${sopItems.filter(s=>s.checked).length}/${sopItems.length} checked`}>✅</span>
+                              :"—"}
+                          </td>
+                        </tr>
+                        {isExp&&(
+                          <tr style={{background:"var(--d3)"}}>
+                            <td colSpan={10} style={{padding:"12px 16px",borderTop:"1px solid var(--bo)"}}>
+                              <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                                {/* Items list */}
+                                <div style={{flex:"1 1 260px"}}>
+                                  <div style={{fontWeight:600,fontSize:12,textTransform:"uppercase",letterSpacing:.5,color:"var(--txd)",marginBottom:8}}>Items</div>
+                                  {vItems.length===0
+                                    ?<div style={{fontSize:13,color:"var(--txd)"}}>No items recorded.</div>
+                                    :<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                                      <thead><tr>
+                                        <th style={{...thStyle,padding:"4px 8px"}}>SKU</th>
+                                        <th style={{...thStyle,padding:"4px 8px"}}>Product</th>
+                                        <th style={{...thStyle,padding:"4px 8px",textAlign:"right"}}>Qty</th>
+                                        <th style={{...thStyle,padding:"4px 8px"}}>Type</th>
+                                      </tr></thead>
+                                      <tbody>
+                                        {vItems.map(it=>(
+                                          <tr key={it.id}>
+                                            <td style={{padding:"4px 8px",borderTop:"1px solid var(--bo)"}}>{it.sku||"—"}</td>
+                                            <td style={{padding:"4px 8px",borderTop:"1px solid var(--bo)"}}>{it.product_name}</td>
+                                            <td style={{padding:"4px 8px",textAlign:"right",borderTop:"1px solid var(--bo)"}}>{it.qty}</td>
+                                            <td style={{padding:"4px 8px",borderTop:"1px solid var(--bo)"}}>{typeBadge(it.type)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  }
+                                </div>
+                                {/* SOP checklist */}
+                                {sopItems&&sopItems.length>0&&(
+                                  <div style={{flex:"1 1 200px"}}>
+                                    <div style={{fontWeight:600,fontSize:12,textTransform:"uppercase",letterSpacing:.5,color:"var(--txd)",marginBottom:8}}>SOP Checklist</div>
+                                    {sopItems.map((s,i)=>(
+                                      <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:5}}>
+                                        <span style={{fontSize:15}}>{s.checked?"✅":"☐"}</span>
+                                        <span style={{color:s.checked?"var(--tx)":"var(--txd)"}}>{s.text}</span>
+                                        {s.required&&!s.checked&&<span style={{fontSize:10,color:"var(--rd)",fontWeight:600}}>REQ</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {/* Photo */}
+                                {v.photo_url&&(
+                                  <div style={{flex:"0 0 auto"}}>
+                                    <div style={{fontWeight:600,fontSize:12,textTransform:"uppercase",letterSpacing:.5,color:"var(--txd)",marginBottom:8}}>Photo</div>
+                                    <a href={v.photo_url} target="_blank" rel="noreferrer">
+                                      <img src={v.photo_url} alt="Visit" style={{width:120,height:90,objectFit:"cover",borderRadius:8,border:"1px solid var(--bo)"}}/>
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── SOP MANAGER ──────────────────────────────────────────────────────────────
 function SOPManagerPage({data,toast}){
   const [clientId,setClientId]=useState("");
@@ -5328,7 +5642,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
@@ -5351,6 +5665,7 @@ export default function App(){
         case "control-panel": return <ClientControlPanelPage data={data} setData={setData} toast={toast}/>;
         case "products": return <ProductsPage data={data} toast={toast}/>;
         case "campaigns": return <CampaignsPage data={data} toast={toast}/>;
+        case "dtd-admin": return <DTDAdminPage data={data} toast={toast}/>;
         case "sops": return <SOPManagerPage data={data} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
         case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
