@@ -237,6 +237,7 @@ const I = ({n,s=18,c="currentColor"}) => {
     box:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27,6.96 12,12.01 20.73,6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
     flag:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
     chart:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>,
+    briefcase:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="2" y1="13" x2="22" y2="13"/></svg>,
   };
   return m[n]||null;
 };
@@ -356,6 +357,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"products",icon:"box",label:"Products"},
     {id:"campaigns",icon:"flag",label:"Campaigns"},
     {id:"dtd-admin",icon:"chart",label:"DTD Reports"},
+    {id:"careers",icon:"briefcase",label:"Careers"},
     {id:"sops",icon:"pdf",label:"SOP Manager"},
     {id:"client_pdf",icon:"pdf",label:"Client Report PDF"},
     {id:"letters",icon:"pdf",label:"Letters & Documents"},
@@ -5542,6 +5544,326 @@ function DTDAdminPage({data,toast}){
   );
 }
 
+// ─── PUBLIC JOB APPLICATION PAGE ──────────────────────────────────────────────
+function PublicJobPage({jobId}){
+  const [job,setJob]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [notFound,setNotFound]=useState(false);
+  const [form,setForm]=useState({name:"",phone:"",education:"",experience_years:"",experience_text:""});
+  const [submitting,setSubmitting]=useState(false);
+  const [hasSubmitted,setHasSubmitted]=useState(false);
+  const [err,setErr]=useState("");
+
+  useEffect(()=>{
+    (async()=>{
+      const {data:row,error}=await SB.from("sm_jobs").select("*").eq("id",jobId).single();
+      if(error||!row) setNotFound(true);
+      else setJob(row);
+      setLoading(false);
+    })();
+  },[]);
+
+  const doApply=async()=>{
+    setErr("");
+    if(!form.name.trim()) return setErr("Full name is required.");
+    if(!form.phone.trim()) return setErr("Phone number is required.");
+    setSubmitting(true);
+    const {error}=await SB.from("sm_applications").insert({
+      id:crypto.randomUUID(),
+      job_id:jobId,
+      name:form.name.trim(),
+      phone:form.phone.trim(),
+      education:form.education.trim(),
+      experience_years:parseInt(form.experience_years)||0,
+      experience_text:form.experience_text.trim(),
+      status:"new",
+      created_at:new Date().toISOString(),
+    });
+    setSubmitting(false);
+    if(error){setErr("Submission failed. Please try again.");return;}
+    setHasSubmitted(true);
+  };
+
+  if(loading) return <div className="lw"><div style={{color:"var(--txd)",fontFamily:"Rajdhani",fontSize:18}}>Loading…</div></div>;
+
+  if(notFound) return (
+    <div className="lw">
+      <div className="lc" style={{textAlign:"center",padding:"48px 32px"}}>
+        <div style={{fontSize:40,marginBottom:12}}>🔍</div>
+        <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--tx)"}}>Invalid Link</div>
+        <div style={{fontSize:14,color:"var(--txd)",marginTop:8}}>This job link is not valid or has been removed.</div>
+      </div>
+    </div>
+  );
+
+  if(hasSubmitted) return (
+    <div className="lw">
+      <div className="lc" style={{textAlign:"center",padding:"48px 32px"}}>
+        <div style={{fontSize:48,marginBottom:16}}>✅</div>
+        <div style={{fontFamily:"Rajdhani",fontSize:24,fontWeight:700,color:"var(--gr)"}}>Application Submitted!</div>
+        <div style={{fontSize:14,color:"var(--txd)",marginTop:12,lineHeight:1.6}}>Thank you for applying for <strong style={{color:"var(--tx)"}}>{job.title}</strong>.<br/>We'll contact you via WhatsApp if shortlisted.</div>
+      </div>
+    </div>
+  );
+
+  const isClosed=job.status==="closed"||job.status==="draft";
+
+  return (
+    <div style={{minHeight:"100vh",background:"var(--d1)",padding:"28px 16px"}}>
+      <div style={{maxWidth:560,margin:"0 auto"}}>
+        <div style={{fontFamily:"Rajdhani",fontSize:11,color:"var(--txd)",marginBottom:20,letterSpacing:2,textTransform:"uppercase"}}>Shinkore Marketing — Careers</div>
+        <div className="card" style={{marginBottom:16}}>
+          <div className="ch">
+            <div style={{flex:1,minWidth:0}}>
+              <div className="ct">{job.title}</div>
+              {job.location&&<div className="cs">📍 {job.location}</div>}
+            </div>
+            {job.status==="open"
+              ?<span className="b" style={{background:"rgba(46,204,113,.12)",color:"var(--gr)",border:"1px solid rgba(46,204,113,.22)"}}>Open</span>
+              :<span className="b" style={{background:"var(--d3)",color:"var(--txd)",border:"1px solid var(--bo)"}}>Closed</span>}
+          </div>
+          <div className="cb">
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:job.description?14:0}}>
+              {job.duration&&<span style={{fontSize:12,background:"var(--d3)",color:"var(--txd)",padding:"4px 10px",borderRadius:12,border:"1px solid var(--bo)"}}>⏱ {job.duration}</span>}
+              {job.salary_range&&<span style={{fontSize:12,background:"var(--d3)",color:"var(--txd)",padding:"4px 10px",borderRadius:12,border:"1px solid var(--bo)"}}>💰 {job.salary_range}</span>}
+              {job.experience&&<span style={{fontSize:12,background:"var(--d3)",color:"var(--txd)",padding:"4px 10px",borderRadius:12,border:"1px solid var(--bo)"}}>🎓 {job.experience}</span>}
+              {job.gender&&job.gender!=="Any"&&<span style={{fontSize:12,background:"var(--d3)",color:"var(--txd)",padding:"4px 10px",borderRadius:12,border:"1px solid var(--bo)"}}>👤 {job.gender}</span>}
+            </div>
+            {job.description&&<div style={{fontSize:14,color:"var(--tx)",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{job.description}</div>}
+          </div>
+        </div>
+
+        {isClosed?(
+          <div className="card">
+            <div className="cb" style={{textAlign:"center",padding:"32px"}}>
+              <div style={{fontSize:32,marginBottom:10}}>🔒</div>
+              <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--tx)"}}>No Longer Accepting Applications</div>
+              <div style={{fontSize:13,color:"var(--txd)",marginTop:6}}>This position has been closed. Check back for future openings.</div>
+            </div>
+          </div>
+        ):(
+          <div className="card">
+            <div className="ch"><div className="ct">Apply Now</div></div>
+            <div className="cb">
+              {err&&<div className="info info-err" style={{marginBottom:14}}><I n="alert" s={14}/>{err}</div>}
+              <div className="fg"><label className="fl">Full Name *</label><input className="fi" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Your full name"/></div>
+              <div className="fg"><label className="fl">Phone Number *</label><input className="fi" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))} placeholder="03xx-xxxxxxx" type="tel"/></div>
+              <div className="fg"><label className="fl">Education</label><input className="fi" value={form.education} onChange={e=>setForm(p=>({...p,education:e.target.value}))} placeholder="e.g. BBA, FAST 2022"/></div>
+              <div className="fg"><label className="fl">Years of Experience</label><input className="fi" value={form.experience_years} onChange={e=>setForm(p=>({...p,experience_years:e.target.value}))} placeholder="0" type="number" min="0"/></div>
+              <div className="fg"><label className="fl">Tell Us About Yourself</label><textarea className="fi" value={form.experience_text} onChange={e=>setForm(p=>({...p,experience_text:e.target.value}))} placeholder="Briefly describe your background and why you're a good fit…" rows={4} style={{resize:"vertical"}}/></div>
+              <button className="bp" onClick={doApply} disabled={submitting}>{submitting?"Submitting…":"Submit Application"}</button>
+              <div style={{fontSize:11,color:"var(--txd)",textAlign:"center",marginTop:10}}>We'll contact you via WhatsApp if shortlisted.</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CAREERS (ADMIN) ──────────────────────────────────────────────────────────
+function CareersPage({data,toast}){
+  const [jobs,setJobs]=useState([]);
+  const [apps,setApps]=useState({});
+  const [expanded,setExpanded]=useState({});
+  const [loading,setLoading]=useState(true);
+  const [showModal,setShowModal]=useState(false);
+  const [form,setForm]=useState({title:"",location:"",experience:"",gender:"Any",duration:"",salary_range:"",description:""});
+  const [saving,setSaving]=useState(false);
+  const [appLoading,setAppLoading]=useState({});
+
+  useEffect(()=>{loadJobs();},[]);
+
+  const loadJobs=async()=>{
+    setLoading(true);
+    const {data:rows}=await SB.from("sm_jobs").select("*").order("created_at",{ascending:false});
+    setJobs(rows||[]);
+    setLoading(false);
+  };
+
+  const loadApps=async(jobId)=>{
+    setAppLoading(p=>({...p,[jobId]:true}));
+    const {data:rows}=await SB.from("sm_applications").select("*").eq("job_id",jobId).order("created_at",{ascending:false});
+    setApps(p=>({...p,[jobId]:rows||[]}));
+    setAppLoading(p=>({...p,[jobId]:false}));
+  };
+
+  const toggleExpand=async(jobId)=>{
+    const next=!expanded[jobId];
+    setExpanded(p=>({...p,[jobId]:next}));
+    if(next&&!apps[jobId]) await loadApps(jobId);
+  };
+
+  const doPost=async()=>{
+    if(!form.title.trim())return toast("Job title is required.");
+    setSaving(true);
+    const {error}=await SB.from("sm_jobs").insert({
+      id:crypto.randomUUID(),
+      title:form.title.trim(),
+      location:form.location.trim(),
+      experience:form.experience.trim(),
+      gender:form.gender,
+      duration:form.duration.trim(),
+      salary_range:form.salary_range.trim(),
+      description:form.description.trim(),
+      status:"open",
+      created_at:new Date().toISOString(),
+    });
+    setSaving(false);
+    if(error){toast("Failed to post job.");return;}
+    toast("Job posted!");
+    setShowModal(false);
+    setForm({title:"",location:"",experience:"",gender:"Any",duration:"",salary_range:"",description:""});
+    loadJobs();
+  };
+
+  const toggleStatus=async(job)=>{
+    const next=job.status==="open"?"closed":"open";
+    await SB.from("sm_jobs").update({status:next}).eq("id",job.id);
+    setJobs(p=>p.map(j=>j.id===job.id?{...j,status:next}:j));
+    toast(`Job marked ${next}.`);
+  };
+
+  const setAppStatus=async(jobId,appId,status)=>{
+    await SB.from("sm_applications").update({status}).eq("id",appId);
+    setApps(p=>({...p,[jobId]:(p[jobId]||[]).map(a=>a.id===appId?{...a,status}:a)}));
+  };
+
+  const copyLink=(id)=>{
+    const link=`https://shinkore-marketing14.pages.dev/?job=${id}`;
+    navigator.clipboard.writeText(link).then(()=>toast("Link copied!")).catch(()=>toast("Copy failed."));
+  };
+
+  const statusBadge=(s)=>{
+    if(s==="open") return <span className="b" style={{background:"rgba(46,204,113,.12)",color:"var(--gr)",border:"1px solid rgba(46,204,113,.22)"}}>Open</span>;
+    if(s==="closed") return <span className="b" style={{background:"var(--d3)",color:"var(--txd)",border:"1px solid var(--bo)"}}>Closed</span>;
+    return <span className="b b-pending">Draft</span>;
+  };
+
+  const appStatusColor={new:"var(--gr)",contacted:"var(--bl)",shortlisted:"#9B59B6",rejected:"var(--rd)",hired:"var(--g)"};
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div className="card">
+        <div className="ch">
+          <I n="briefcase" s={17} c="var(--g)"/>
+          <div style={{flex:1}}>
+            <div className="ct">Job Postings</div>
+            <div className="cs">{loading?"Loading…":`${jobs.length} job${jobs.length!==1?"s":""} posted`}</div>
+          </div>
+          <button className="bg" onClick={()=>setShowModal(true)}><I n="plus" s={15}/> Post Job</button>
+        </div>
+      </div>
+
+      {!loading&&jobs.length===0&&(
+        <div className="card"><div className="cb" style={{textAlign:"center",padding:"48px"}}>
+          <div style={{fontSize:36,marginBottom:8}}>📋</div>
+          <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:600,color:"var(--tx)"}}>No Jobs Posted Yet</div>
+          <div style={{fontSize:13,color:"var(--txd)",marginTop:6}}>Post a job to generate a shareable application link.</div>
+        </div></div>
+      )}
+
+      {jobs.map(job=>{
+        const appList=apps[job.id]||[];
+        const isOpen=!!expanded[job.id];
+        return (
+          <div key={job.id} className="card">
+            <div className="ch">
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                  <div className="ct">{job.title}</div>
+                  {statusBadge(job.status)}
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+                  {job.location&&<span className="cs">📍 {job.location}</span>}
+                  {job.duration&&<span className="cs">⏱ {job.duration}</span>}
+                  {job.salary_range&&<span className="cs">💰 {job.salary_range}</span>}
+                  {job.experience&&<span className="cs">🎓 {job.experience}</span>}
+                  {job.gender&&job.gender!=="Any"&&<span className="cs">👤 {job.gender}</span>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap"}}>
+                <button className="bs" style={{fontSize:12,padding:"6px 11px"}} onClick={()=>copyLink(job.id)}>🔗 Copy Link</button>
+                <button className="bs" style={{fontSize:12,padding:"6px 11px"}} onClick={()=>toggleStatus(job)}>{job.status==="open"?"Close":"Reopen"}</button>
+                <button className="bg" style={{fontSize:12,padding:"6px 11px"}} onClick={()=>toggleExpand(job.id)}>{isOpen?"Hide ▲":"Applications ▼"}</button>
+              </div>
+            </div>
+
+            {isOpen&&(
+              <div className="cb" style={{borderTop:"1px solid var(--bo)"}}>
+                {appLoading[job.id]&&<div style={{textAlign:"center",padding:"20px",color:"var(--txd)"}}>Loading…</div>}
+                {!appLoading[job.id]&&appList.length===0&&(
+                  <div style={{textAlign:"center",padding:"20px",color:"var(--txd)",fontSize:13}}>No applications yet. Share the link to start receiving applicants.</div>
+                )}
+                {!appLoading[job.id]&&appList.length>0&&(
+                  <div>
+                    <div style={{fontSize:11,color:"var(--txd)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>{appList.length} application{appList.length!==1?"s":""}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {appList.map(app=>(
+                        <div key={app.id} style={{background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,padding:"12px 14px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:app.experience_text?8:0}}>
+                            <div>
+                              <div style={{fontWeight:600,fontSize:14,color:"var(--tx)"}}>{app.name}</div>
+                              <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>
+                                {app.phone}
+                                {app.education?` · ${app.education}`:""}
+                                {app.experience_years!=null?` · ${app.experience_years}yr exp`:""}
+                              </div>
+                            </div>
+                            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                              <select value={app.status||"new"} onChange={e=>setAppStatus(job.id,app.id,e.target.value)} style={{fontSize:12,padding:"4px 8px",borderRadius:7,border:"1px solid var(--bo)",background:"var(--d4)",color:appStatusColor[app.status||"new"]||"var(--tx)",outline:"none"}}>
+                                <option value="new">New</option>
+                                <option value="contacted">Contacted</option>
+                                <option value="shortlisted">Shortlisted</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="hired">Hired</option>
+                              </select>
+                              <button className="bw" style={{fontSize:12,padding:"5px 10px"}} onClick={()=>sendWA(app.phone,`Hi ${app.name}, thank you for applying for ${job.title} at Shinkore Marketing. We'd like to discuss your application.`)}><I n="wa" s={13}/> WhatsApp</button>
+                            </div>
+                          </div>
+                          {app.experience_text&&<div style={{fontSize:12,color:"var(--tx)",background:"var(--d4)",border:"1px solid var(--bo)",padding:"8px 10px",borderRadius:7,lineHeight:1.6}}>{app.experience_text}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {showModal&&(
+        <div className="mo" onClick={()=>setShowModal(false)}>
+          <div className="md" style={{maxWidth:500}} onClick={e=>e.stopPropagation()}>
+            <div className="mh">
+              <div className="mt">Post New Job</div>
+              <button className="mc" onClick={()=>setShowModal(false)}>✕</button>
+            </div>
+            <div className="mb">
+              <div className="fg"><label className="fl">Job Title *</label><input className="fi" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="e.g. Brand Ambassador – Karachi"/></div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Location</label><input className="fi" value={form.location} onChange={e=>setForm(p=>({...p,location:e.target.value}))} placeholder="City / Area"/></div>
+                <div className="fg"><label className="fl">Duration</label><input className="fi" value={form.duration} onChange={e=>setForm(p=>({...p,duration:e.target.value}))} placeholder="e.g. 3 months"/></div>
+              </div>
+              <div className="frow">
+                <div className="fg"><label className="fl">Experience Required</label><input className="fi" value={form.experience} onChange={e=>setForm(p=>({...p,experience:e.target.value}))} placeholder="e.g. 1+ years"/></div>
+                <div className="fg"><label className="fl">Gender</label><select className="fsel" value={form.gender} onChange={e=>setForm(p=>({...p,gender:e.target.value}))}><option>Any</option><option>Male</option><option>Female</option></select></div>
+              </div>
+              <div className="fg"><label className="fl">Salary Range</label><input className="fi" value={form.salary_range} onChange={e=>setForm(p=>({...p,salary_range:e.target.value}))} placeholder="e.g. PKR 25,000–35,000/month"/></div>
+              <div className="fg"><label className="fl">Job Description</label><textarea className="fi" value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Responsibilities, requirements, benefits…" rows={5} style={{resize:"vertical"}}/></div>
+              <div className="ma">
+                <button className="bs" onClick={()=>setShowModal(false)}>Cancel</button>
+                <button className="bg" onClick={doPost} disabled={saving}>{saving?"Posting…":"Post Job"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SOP MANAGER ──────────────────────────────────────────────────────────────
 function SOPManagerPage({data,toast}){
   const [clientId,setClientId]=useState("");
@@ -6096,8 +6418,10 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":sessionSafe.role==="client"?(sessionSafe.login_method==="access_code"?"client_portal":"client_dash"):"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",careers:"Careers",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
+  const jobParam=new URLSearchParams(window.location.search).get("job");
+  if(jobParam) return <><style>{css}</style><PublicJobPage jobId={jobParam}/></>;
   const urlRole=window.location.pathname.includes("admin")?"admin":window.location.pathname.includes("supervisor")?"supervisor":window.location.pathname.includes("ba")?"ba":""; if(!user) return <><style>{css}</style><Login onLogin={doLogin} urlRole={urlRole}/></>;
 
   const isAdmin=user.role==="admin";
@@ -6120,6 +6444,7 @@ export default function App(){
         case "products": return <ProductsPage data={data} toast={toast}/>;
         case "campaigns": return <CampaignsPage data={data} toast={toast}/>;
         case "dtd-admin": return <DTDAdminPage data={data} toast={toast}/>;
+        case "careers": return <CareersPage data={data} toast={toast}/>;
         case "sops": return <SOPManagerPage data={data} toast={toast}/>;
         case "client_pdf": return <ClientPDFPage user={user} data={data} toast={toast}/>;
         case "letters": return <LettersPage data={data} toast={toast} setData={setData} save={save}/>;
