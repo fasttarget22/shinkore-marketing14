@@ -6753,8 +6753,8 @@ function DTDAdminPage({data,toast}){
       if(!camp||camp.client_id!==filters.client_id) return false;
     }
     if(filters.ba_id&&v.ba_id!==filters.ba_id) return false;
-    if(filters.date_from&&v.visit_time.slice(0,10)<filters.date_from) return false;
-    if(filters.date_to&&v.visit_time.slice(0,10)>filters.date_to) return false;
+    if(filters.date_from&&(v.visit_time||"").slice(0,10)<filters.date_from) return false;
+    if(filters.date_to&&(v.visit_time||"").slice(0,10)>filters.date_to) return false;
     if(filters.activity_type){
       const vItems=items.filter(i=>i.visit_id===v.id);
       if(!vItems.some(i=>i.type===filters.activity_type)) return false;
