@@ -4073,7 +4073,8 @@ function ClientPortalPage({user,data,toast}){
     setVisits(visitRows);
     setItems(itemRows);
 
-    const{data:stallData}=await SB.from("sm_stalls").select("id,name,city,from_date,to_date,client").ilike("client",user.name);
+    const{data:stallData}=await SB.from("sm_stalls").select("id,name,city,from_date,to_date,client").eq("client",user.name.trim());
+
     setStalls(stallData||[]);
     setLoading(false);
   };
@@ -4184,7 +4185,7 @@ function ClientDashPage({user,data,toast}){
   const acts=(data.activities||[]).filter(a=>
     a.approval_status==="approved"&&
     a.brand&&client.brand&&
-    a.brand.toLowerCase().includes(client.brand.toLowerCase())&&
+    (a.brand||"").trim().toLowerCase()===(client.brand||"").trim().toLowerCase()&&
     a.date&&a.date.startsWith(month)
   ).sort((a,b)=>a.date>b.date?-1:1);
 
