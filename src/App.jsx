@@ -1,5 +1,6 @@
 // rebuild trigger 1
 import { useState, useEffect, useRef } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { css } from "./styles.js";
 import { createClient } from "@supabase/supabase-js";
 const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable_hPu0RIbvCd_DBCM4s2lH2g_U6CONZdr");
@@ -4293,140 +4294,337 @@ function ClientStoreMap({client,data}){
 // ─── CLIENT PORTAL (DTD + STALLS VIEW) ───────────────────────────────────────
 function ClientPortalPage({user,data,toast,view}){
   const today=new Date().toISOString().slice(0,10);
-  const [campaigns,setCampaigns]=useState([]);
-  const [visits,setVisits]=useState([]);
-  const [items,setItems]=useState([]);
-  const [stalls,setStalls]=useState([]);
+  const thisMonth=today.slice(0,7);
+  const [ty,tm]=thisMonth.split("-").map(Number);
+  const prevD=new Date(ty,tm-2,1);
+  const lastMonth=prevD.getFullYear()+"-"+String(prevD.getMonth()+1).padStart(2,"0");
+  const monthLabel=new Date(ty,tm-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+
   const [loading,setLoading]=useState(true);
+  const [campaigns,setCampaigns]=useState([]);
+  const [allVisits,setAllVisits]=useState([]);
+  const [allItems,setAllItems]=useState([]);
+  const [products,setProducts]=useState([]);
+  const [stalls,setStalls]=useState([]);
+  const [campTargets,setCampTargets]=useState([]);
 
   useEffect(()=>{loadAll();},[]);
 
   const loadAll=async()=>{
     setLoading(true);
-    const{data:campData,error:e1}=await SB.from("sm_campaigns").select("id,name,start_date,end_date,status").eq("client_id",user.id);
-    if(e1){toast("Failed to load campaigns.");setLoading(false);return;}
+    const{data:campData}=await SB.from("sm_campaigns").select("id,name,client_id,start_date,end_date,status,assigned_bas").eq("client_id",user.id);
     const camps=campData||[];
     setCampaigns(camps);
     const campIds=camps.map(c=>c.id);
 
-    let visitRows=[],itemRows=[];
+    const[sRes,pRes]=await Promise.all([
+      SB.from("sm_stalls").select("id,name,city,from_date,to_date,client").eq("client",user.name.trim()),
+      SB.from("sm_products").select("id,name,sku,unit_price").eq("client_id",user.id),
+    ]);
+    setStalls(sRes.data||[]);
+    setProducts(pRes.data||[]);
+
     if(campIds.length>0){
-      const{data:vData}=await SB.from("sm_door_visits")
-        .select("id,campaign_id,ba_id,visit_time,customer_name")
-        .in("campaign_id",campIds)
-        .order("visit_time",{ascending:false})
-        .limit(50);
-      visitRows=vData||[];
+      const lastMonthStart=lastMonth+"-01";
+      const[vRes,tRes]=await Promise.all([
+        SB.from("sm_door_visits").select("id,campaign_id,ba_id,visit_time,customer_name").in("campaign_id",campIds).gte("visit_time",lastMonthStart).order("visit_time",{ascending:false}),
+        SB.from("sm_campaign_targets").select("*").in("campaign_id",campIds),
+      ]);
+      const visitRows=vRes.data||[];
+      setCampTargets(tRes.data||[]);
+      setAllVisits(visitRows);
       if(visitRows.length>0){
         const vIds=visitRows.map(v=>v.id);
-        const{data:iData}=await SB.from("sm_door_items").select("visit_id,qty,type").in("visit_id",vIds);
-        itemRows=iData||[];
+        const chunkSz=200;let items=[];
+        for(let i=0;i<vIds.length;i+=chunkSz){
+          const{data:iData}=await SB.from("sm_door_items").select("visit_id,product_id,qty,type").in("visit_id",vIds.slice(i,i+chunkSz));
+          items=[...items,...(iData||[])];
+        }
+        setAllItems(items);
       }
     }
-    setVisits(visitRows);
-    setItems(itemRows);
-
-    const{data:stallData}=await SB.from("sm_stalls").select("id,name,city,from_date,to_date,client").eq("client",user.name.trim());
-
-    setStalls(stallData||[]);
     setLoading(false);
   };
 
-  const baFirstName=(baId)=>{const u=(data.users||[]).find(x=>x.id===baId);return u?u.name.split(" ")[0]:"Staff";};
-  const visitItemCount=(vid)=>items.filter(i=>i.visit_id===vid).length;
-  const activeStalls=stalls.filter(s=>s.from_date&&s.to_date&&s.from_date<=today&&s.to_date>=today).length;
+  // ── Derived ───────────────────────────────────────────────────────────
+  const thisMonthVisits=allVisits.filter(v=>v.visit_time?.startsWith(thisMonth));
+  const lastMonthVisits=allVisits.filter(v=>v.visit_time?.startsWith(lastMonth));
+  const thisMonthVIds=new Set(thisMonthVisits.map(v=>v.id));
+  const lastMonthVIds=new Set(lastMonthVisits.map(v=>v.id));
+  const thisMonthItems=allItems.filter(i=>thisMonthVIds.has(i.visit_id));
+  const lastMonthItems=allItems.filter(i=>lastMonthVIds.has(i.visit_id));
+  const activeStallsArr=stalls.filter(s=>s.from_date&&s.to_date&&s.from_date<=today&&s.to_date>=today);
 
-  const stallStatus=(s)=>{
-    if(!s.from_date||!s.to_date) return{label:"Unknown",color:"var(--txd)"};
-    if(s.from_date>today) return{label:"Upcoming",color:"#3498db"};
-    if(s.to_date<today) return{label:"Ended",color:"var(--txd)"};
-    return{label:"Active",color:"var(--gr)"};
+  const sumQty=(items)=>items.reduce((s,i)=>s+(Number(i.qty)||1),0);
+  const salesVal=(items)=>items.filter(i=>i.type==="sale").reduce((s,i)=>{
+    const p=products.find(pr=>pr.id===i.product_id);
+    return s+(Number(i.qty)||1)*(p?Number(p.unit_price)||0:0);
+  },0);
+  const thisQty=sumQty(thisMonthItems);
+  const lastQty=sumQty(lastMonthItems);
+  const thisSales=salesVal(thisMonthItems);
+  const lastSales=salesVal(lastMonthItems);
+
+  const pctChg=(cur,prev)=>{if(prev===0)return null;const d=(cur-prev)/prev*100;return(d>=0?"+":"")+d.toFixed(0)+"%";};
+  const fmt=(n)=>n>=1000000?`${(n/1000000).toFixed(2)}M`:n>=1000?`${(n/1000).toFixed(1)}k`:String(Math.round(n));
+  const fmtPKR=(n)=>n>=1000000?`₨${(n/1000000).toFixed(2)}M`:n>=1000?`₨${(n/1000).toFixed(1)}K`:`₨${Math.round(n).toLocaleString()}`;
+  const baName=(id)=>{const u=(data.users||[]).find(x=>x.id===id);return u?u.name.split(" ")[0]:"Staff";};
+
+  // ── Chart data ────────────────────────────────────────────────────────
+  const last30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));return d.toISOString().slice(0,10);});
+  const visitByDay=new Map();allVisits.forEach(v=>{if(!v.visit_time)return;const d=v.visit_time.slice(0,10);visitByDay.set(d,(visitByDay.get(d)||0)+1);});
+  const visitIdDay=new Map(allVisits.map(v=>[v.id,v.visit_time?.slice(0,10)]));
+  const itemQtyDay=new Map();allItems.forEach(i=>{const d=visitIdDay.get(i.visit_id);if(!d)return;itemQtyDay.set(d,(itemQtyDay.get(d)||0)+(Number(i.qty)||1));});
+  const lineData=last30.map(date=>{const[,m,dy]=date.split("-");return{name:`${dy}/${m}`,doors:visitByDay.get(date)||0,items:itemQtyDay.get(date)||0};});
+
+  const typeAgg={};
+  thisMonthItems.forEach(i=>{const t=i.type?i.type.charAt(0).toUpperCase()+i.type.slice(1):"Other";typeAgg[t]=(typeAgg[t]||0)+(Number(i.qty)||1);});
+  const pieData=Object.entries(typeAgg).map(([name,value])=>({name,value}));
+  const PIE_COLORS={"Sale":"#C9A84C","Gift":"#3A9BD5","Sample":"#2ECC71","Return":"#E74C3C","Other":"#6E6A60"};
+
+  // ── Campaign health ───────────────────────────────────────────────────
+  const activeCamps=campaigns.filter(c=>c.status==="active"||(c.end_date&&c.end_date>=today)).slice(0,3);
+
+  const campProgress=(camp)=>{
+    const cvIds=new Set(allVisits.filter(v=>v.campaign_id===camp.id).map(v=>v.id));
+    const totalDoors=cvIds.size;
+    const tgts=campTargets.filter(t=>t.campaign_id===camp.id);
+    if(!tgts.length||!camp.start_date)return{pct:null,totalDoors,targetDoors:0};
+    const periodEnd=camp.end_date&&camp.end_date<today?camp.end_date:today;
+    const workdays=Math.max(1,Math.round((new Date(periodEnd)-new Date(camp.start_date))/86400000)+1);
+    const targetDoors=tgts.reduce((s,t)=>s+(Number(t.doors_per_day)||0)*workdays,0);
+    const pct=targetDoors>0?Math.round(totalDoors/targetDoors*100):null;
+    return{pct,totalDoors,targetDoors};
   };
+  const daysLeft=(end)=>{if(!end)return null;return Math.ceil((new Date(end)-new Date(today))/86400000);};
 
-  const cardStyle={background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",flex:1,minWidth:120};
-  const thStyle={textAlign:"left",padding:"8px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:.5};
-  const tdStyle={padding:"8px 10px",fontSize:13,borderTop:"1px solid var(--bo)"};
+  // ── Top performers ────────────────────────────────────────────────────
+  const topSku=(()=>{const m={};thisMonthItems.forEach(i=>{const p=products.find(pr=>pr.id===i.product_id);if(!p)return;const k=p.name||p.sku;m[k]=(m[k]||0)+(Number(i.qty)||1);});const e=Object.entries(m).sort((a,b)=>b[1]-a[1]);return e[0]||null;})();
+  const bestBA=(()=>{const m={};thisMonthVisits.forEach(v=>{const n=baName(v.ba_id);m[n]=(m[n]||0)+1;});const e=Object.entries(m).sort((a,b)=>b[1]-a[1]);if(!e[0])return null;return{name:e[0][0],pct:Math.round(e[0][1]/(thisMonthVisits.length||1)*100)};})();
+  const bestZone=(()=>{const m={};thisMonthVisits.forEach(v=>{const c=campaigns.find(x=>x.id===v.campaign_id);const k=c?c.name:"Unknown";m[k]=(m[k]||0)+1;});const e=Object.entries(m).sort((a,b)=>b[1]-a[1]);return e[0]||null;})();
+  const peakTime=(()=>{const m={};thisMonthVisits.forEach(v=>{if(!v.visit_time)return;const h=new Date(v.visit_time).getHours();m[h]=(m[h]||0)+1;});const e=Object.entries(m).sort((a,b)=>Number(b[1])-Number(a[1]));if(!e[0])return null;const h=Number(e[0][0]);return`${String(h).padStart(2,"0")}:00 – ${String(h+1).padStart(2,"0")}:00`;})();
 
+  // ── Shared styles ─────────────────────────────────────────────────────
+  const cardS={background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",minWidth:0};
+  const thS={textAlign:"left",padding:"8px 10px",color:"var(--txd)",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:.5};
+  const tdS={padding:"8px 10px",fontSize:13,borderTop:"1px solid var(--bo)"};
+  const stallStatus=(s)=>{if(!s.from_date||!s.to_date)return{label:"Unknown",color:"var(--txd)"};if(s.from_date>today)return{label:"Upcoming",color:"#3498db"};if(s.to_date<today)return{label:"Ended",color:"var(--txd)"};return{label:"Active",color:"var(--gr)"};};
+  const chartTooltipStyle={background:"#161A22",border:"1px solid rgba(201,168,76,0.18)",borderRadius:8,fontSize:12};
+
+  // ── HOME DASHBOARD ────────────────────────────────────────────────────
+  if(!view||view==="home"){
+    const KpiCard=({label,value,change,icon})=>{
+      const up=change?.startsWith("+");const dn=change?.startsWith("-");
+      return(
+        <div style={{...cardS,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:10,right:12,fontSize:22,opacity:.1}}>{icon}</div>
+          {loading
+            ?<div style={{height:32,background:"var(--d3)",borderRadius:6,marginBottom:4}}/>
+            :<div style={{fontFamily:"Rajdhani",fontSize:26,fontWeight:700,color:"var(--g)",lineHeight:1}}>{value}</div>}
+          {!loading&&change&&<div style={{fontSize:11,marginTop:3,fontWeight:600,color:up?"var(--gr)":dn?"var(--rd)":"var(--txd)"}}>{change} vs last mo.</div>}
+          <div style={{fontSize:10,color:"var(--txd)",marginTop:loading?6:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+        </div>
+      );
+    };
+    return(
+      <div>
+        {/* HEADER */}
+        <div style={{background:"linear-gradient(135deg,var(--d3),var(--d4))",border:"1px solid var(--bo)",borderRadius:14,padding:"18px 20px",marginBottom:16}}>
+          <div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{user.name}</div>
+          <div style={{fontSize:12,color:"var(--txd)",marginTop:4,letterSpacing:.5}}>Client Portal · {monthLabel}</div>
+          {user.brand&&<div style={{fontSize:11,color:"var(--gl)",marginTop:2,opacity:.8}}>Brand: {user.brand}</div>}
+        </div>
+
+        {/* KPI ROW */}
+        <div className="cp-kpi">
+          <KpiCard label="Doors Visited" value={loading?"…":fmt(thisMonthVisits.length)} change={pctChg(thisMonthVisits.length,lastMonthVisits.length)} icon="🚪"/>
+          <KpiCard label="Items Distributed" value={loading?"…":fmt(thisQty)} change={pctChg(thisQty,lastQty)} icon="📦"/>
+          <KpiCard label="Sales Value PKR" value={loading?"…":fmtPKR(thisSales)} change={pctChg(thisSales,lastSales)} icon="💰"/>
+          <KpiCard label="Active Stalls" value={loading?"…":String(activeStallsArr.length)} icon="📍"/>
+        </div>
+
+        {/* CAMPAIGN HEALTH BANNER */}
+        {!loading&&activeCamps.length>0&&(
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:13,fontWeight:700,color:"var(--g)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>Campaign Health</div>
+            {activeCamps.map(camp=>{
+              const{pct,totalDoors,targetDoors}=campProgress(camp);
+              const dl=daysLeft(camp.end_date);
+              const pill=pct===null?null:pct>=90?{l:"On Track",c:"var(--gr)"}:pct>=70?{l:"At Risk",c:"var(--or)"}:{l:"Below Target",c:"var(--rd)"};
+              return(
+                <div key={camp.id} style={{marginBottom:10,padding:"12px 14px",background:"var(--d3)",borderRadius:10,border:"1px solid var(--bo)"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:6}}>
+                    <div style={{fontFamily:"Rajdhani",fontSize:15,fontWeight:700,color:"var(--tx)"}}>{camp.name}</div>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {pill&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,fontWeight:700,color:pill.c,border:"1px solid "+pill.c,background:pill.c+"22"}}>{pill.l}</span>}
+                      {dl!==null&&<span style={{fontSize:10,color:"var(--txd)"}}>{dl>0?`${dl}d left`:"Ended"}</span>}
+                    </div>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--txd)",marginBottom:6}}>{camp.start_date} → {camp.end_date||"ongoing"}</div>
+                  {pct!==null&&<>
+                    <div style={{height:5,background:"var(--d4)",borderRadius:3,overflow:"hidden",marginBottom:4}}>
+                      <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:pct>=90?"var(--gr)":pct>=70?"var(--or)":"var(--rd)",borderRadius:3}}/>
+                    </div>
+                    <div style={{fontSize:11,color:"var(--txd)"}}>{totalDoors} / {targetDoors} doors · {pct}%</div>
+                  </>}
+                  {pct===null&&<div style={{fontSize:11,color:"var(--txd)"}}>{totalDoors} doors recorded · no target set</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* CHARTS ROW */}
+        <div className="cp-charts">
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px"}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:13,fontWeight:700,color:"var(--g)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>Daily Activity · Last 30 Days</div>
+            {loading
+              ?<div style={{height:180,background:"var(--d3)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--txd)"}}>Loading…</div>
+              :allVisits.length===0
+                ?<div style={{height:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"var(--txd)",gap:6}}><div style={{fontSize:28}}>📊</div><div style={{fontSize:12}}>No activity data yet</div></div>
+                :<ResponsiveContainer width="100%" height={190}>
+                  <LineChart data={lineData} margin={{top:5,right:8,left:-25,bottom:5}}>
+                    <XAxis dataKey="name" tick={{fill:"#6E6A60",fontSize:9}} tickLine={false} interval={5}/>
+                    <YAxis tick={{fill:"#6E6A60",fontSize:9}} tickLine={false} axisLine={false} allowDecimals={false}/>
+                    <Tooltip contentStyle={chartTooltipStyle} labelStyle={{color:"#6E6A60"}}/>
+                    <Line type="monotone" dataKey="doors" stroke="#d4b34a" strokeWidth={2} dot={false} name="Doors"/>
+                    <Line type="monotone" dataKey="items" stroke="#f4d97a" strokeWidth={1.5} dot={false} name="Items" strokeDasharray="4 2"/>
+                  </LineChart>
+                </ResponsiveContainer>
+            }
+          </div>
+
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px"}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:13,fontWeight:700,color:"var(--g)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>Items by Type · This Month</div>
+            {loading
+              ?<div style={{height:180,background:"var(--d3)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--txd)"}}>Loading…</div>
+              :pieData.length===0
+                ?<div style={{height:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"var(--txd)",gap:6}}><div style={{fontSize:28}}>🍩</div><div style={{fontSize:12}}>No items this month</div></div>
+                :<ResponsiveContainer width="100%" height={190}>
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" outerRadius={68} dataKey="value" label={({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`} labelLine={true} fontSize={11}>
+                      {pieData.map((e,i)=><Cell key={i} fill={PIE_COLORS[e.name]||"#C9A84C"}/>)}
+                    </Pie>
+                    <Tooltip contentStyle={chartTooltipStyle} formatter={(v,n)=>[`${v} units`,n]}/>
+                  </PieChart>
+                </ResponsiveContainer>
+            }
+          </div>
+        </div>
+
+        {/* TOP PERFORMERS */}
+        <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontFamily:"Rajdhani",fontSize:13,fontWeight:700,color:"var(--g)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>Top Performers · This Month</div>
+          {loading
+            ?[1,2,3,4].map(i=><div key={i} style={{height:44,background:"var(--d3)",borderRadius:10,marginBottom:8}}/>)
+            :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {[
+                {icon:"🏆",label:"Top SKU",val:topSku?`${topSku[0]} · ${topSku[1]} units`:null},
+                {icon:"👤",label:"Best BA",val:bestBA?`${bestBA.name} · ${bestBA.pct}% of visits`:null},
+                {icon:"📍",label:"Top Territory",val:bestZone?`${bestZone[0]} · ${bestZone[1]} visits`:null},
+                {icon:"⏰",label:"Peak Time",val:peakTime},
+              ].map(row=>(
+                <div key={row.label} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"var(--d3)",borderRadius:10,border:"1px solid var(--bo)"}}>
+                  <div style={{fontSize:18,width:28,textAlign:"center",flexShrink:0}}>{row.icon}</div>
+                  <div>
+                    <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5,lineHeight:1.2}}>{row.label}</div>
+                    <div style={{fontSize:13,color:row.val?"var(--tx)":"var(--txd)",fontWeight:row.val?500:400,marginTop:2}}>{row.val||"No data yet"}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      </div>
+    );
+  }
+
+  // ── DTD VIEW ──────────────────────────────────────────────────────────
+  if(view==="dtd"){
+    const displayVisits=allVisits.slice(0,50);
+    const visitItemCount=(vid)=>allItems.filter(i=>i.visit_id===vid).length;
+    return(
+      <div>
+        <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🚪</div>
+          <div>
+            <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
+            <div style={{fontSize:12,color:"var(--txd)"}}>DTD Door Visits · Client Portal</div>
+          </div>
+        </div>
+        {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading visits…</div></div>}
+        {!loading&&<div className="card">
+          <div className="ch">
+            <I n="map" s={17} c="var(--g)"/>
+            <div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{displayVisits.length} visits{allVisits.length>50?" (showing last 50)":""}</div></div>
+            {displayVisits.length>0&&<button className="bs" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>{const nl=String.fromCharCode(10);const h="Date,Time,Customer,Items,Field Rep"+nl;const r=displayVisits.map(v=>{const dt=new Date(v.visit_time);return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",visitItemCount(v.id),baName(v.ba_id)].join(",");}).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="visits.csv";a.click();}}><I n="pdf" s={13}/>Export</button>}
+          </div>
+          <div className="cb">
+            {displayVisits.length===0
+              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:36,marginBottom:8}}>📭</div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>{campaigns.length===0?"No active campaigns yet":"No door visits recorded yet"}</div></div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr>
+                    <th style={thS}>Date</th><th style={thS}>Time</th><th style={thS}>Customer</th>
+                    <th style={{...thS,textAlign:"center"}}>Items</th><th style={thS}>Field Rep</th>
+                  </tr></thead>
+                  <tbody>{displayVisits.map(v=>{
+                    const dt=new Date(v.visit_time);
+                    return(<tr key={v.id}>
+                      <td style={tdS}>{dt.toLocaleDateString("en-GB")}</td>
+                      <td style={tdS}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
+                      <td style={tdS}>{v.customer_name||"—"}</td>
+                      <td style={{...tdS,textAlign:"center"}}>{visitItemCount(v.id)}</td>
+                      <td style={tdS}>{baName(v.ba_id)}</td>
+                    </tr>);
+                  })}</tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>}
+      </div>
+    );
+  }
+
+  // ── STALLS VIEW ───────────────────────────────────────────────────────
   return(
     <div>
       <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
-        <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🏢</div>
+        <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📍</div>
         <div>
-          <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
-          <div style={{fontSize:13,color:"var(--txd)"}}>Brand: {user.brand||"—"} · Client Portal</div>
+          <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
+          <div style={{fontSize:12,color:"var(--txd)"}}>Permission Stalls · Client Portal</div>
         </div>
       </div>
-
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":visits.length}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Doors Visited</div></div>
-        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":items.length}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Items Distributed</div></div>
-        <div style={cardStyle}><div style={{fontFamily:"Rajdhani",fontSize:28,fontWeight:700,color:"var(--g)",lineHeight:1}}>{loading?"…":activeStalls}</div><div style={{fontSize:11,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>Active Stalls</div></div>
-      </div>
-
-      {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading your data…</div></div>}
-
-      {!loading&&<>
-        {(!view||view==="dtd")&&<div className="card" style={{marginBottom:16}}>
-          <div className="ch"><I n="map" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{visits.length} visits (last 50)</div></div>{visits.length>0&&<button className="bs" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>{const nl=String.fromCharCode(10);const h="Date,Time,Customer,Phone,Items,Field Rep"+nl;const r=visits.map(v=>{const dt=new Date(v.visit_time);return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",v.customer_phone||"",visitItemCount(v.id),baFirstName(v.ba_id)].join(",");}).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="visits.csv";a.click();}}><I n="pdf" s={13}/>Export</button>}</div>
-          <div className="cb">
-            {visits.length===0
-              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>
-                  <div style={{fontSize:36,marginBottom:8}}>📭</div>
-                  <div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>{campaigns.length===0?"No active campaigns yet":"No door visits recorded yet"}</div>
-                </div>
-              :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr>
-                    <th style={thStyle}>Date</th><th style={thStyle}>Time</th><th style={thStyle}>Customer</th>
-                    <th style={{...thStyle,textAlign:"center"}}>Items</th><th style={thStyle}>Field Rep</th>
-                  </tr></thead>
-                  <tbody>{visits.map(v=>{
-                    const dt=new Date(v.visit_time);
-                    return(<tr key={v.id}>
-                      <td style={tdStyle}>{dt.toLocaleDateString("en-GB")}</td>
-                      <td style={tdStyle}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
-                      <td style={tdStyle}>{v.customer_name}</td>
-                      <td style={{...tdStyle,textAlign:"center"}}>{visitItemCount(v.id)}</td>
-                      <td style={tdStyle}>{baFirstName(v.ba_id)}</td>
-                    </tr>);
-                  })}</tbody>
-                </table>
-              </div>
-            }
-          </div>
-        </div>}
-
-        {(!view||view==="stalls")&&<div className="card">
-          <div className="ch"><I n="pin" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Your Stalls</div><div className="cs">{stalls.length} stalls</div></div></div>
-          <div className="cb">
-            {stalls.length===0
-              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>
-                  <div style={{fontSize:36,marginBottom:8}}>📍</div>
-                  <div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>No stalls assigned yet</div>
-                </div>
-              :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr>
-                    <th style={thStyle}>Location</th><th style={thStyle}>City</th>
-                    <th style={thStyle}>Dates</th><th style={{...thStyle,textAlign:"center"}}>Status</th>
-                  </tr></thead>
-                  <tbody>{stalls.map(s=>{
-                    const st=stallStatus(s);
-                    return(<tr key={s.id}>
-                      <td style={tdStyle}>{s.name}</td>
-                      <td style={tdStyle}>{s.city||"—"}</td>
-                      <td style={tdStyle}>{s.from_date||"?"} → {s.to_date||"?"}</td>
-                      <td style={{...tdStyle,textAlign:"center"}}>
-                        <span style={{fontSize:11,padding:"2px 10px",borderRadius:20,fontWeight:600,color:st.color,border:"1px solid "+st.color,background:st.color+"22"}}>{st.label}</span>
-                      </td>
-                    </tr>);
-                  })}</tbody>
-                </table>
-              </div>
-            }
-          </div>
-        </div>}
-      </>}
+      {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading stalls…</div></div>}
+      {!loading&&<div className="card">
+        <div className="ch"><I n="pin" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Your Stalls</div><div className="cs">{stalls.length} stalls</div></div></div>
+        <div className="cb">
+          {stalls.length===0
+            ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:36,marginBottom:8}}>📍</div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>No stalls assigned yet</div></div>
+            :<div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr>
+                  <th style={thS}>Location</th><th style={thS}>City</th>
+                  <th style={thS}>Dates</th><th style={{...thS,textAlign:"center"}}>Status</th>
+                </tr></thead>
+                <tbody>{stalls.map(s=>{
+                  const st=stallStatus(s);
+                  return(<tr key={s.id}>
+                    <td style={tdS}>{s.name}</td>
+                    <td style={tdS}>{s.city||"—"}</td>
+                    <td style={tdS}>{s.from_date||"?"} → {s.to_date||"?"}</td>
+                    <td style={{...tdS,textAlign:"center"}}>
+                      <span style={{fontSize:11,padding:"2px 10px",borderRadius:20,fontWeight:600,color:st.color,border:"1px solid "+st.color,background:st.color+"22"}}>{st.label}</span>
+                    </td>
+                  </tr>);
+                })}</tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>}
     </div>
   );
 }

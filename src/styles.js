@@ -173,6 +173,11 @@ tr:hover td{background:rgba(201,168,76,.025)}
 .srch input:focus{border-color:var(--g)}
 .srch svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--txd)}
 
+/* CLIENT PORTAL DASHBOARD */
+.cp-kpi{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.cp-charts{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px}
+@media(min-width:769px){.cp-kpi{grid-template-columns:repeat(4,1fr)}.cp-charts{grid-template-columns:1fr 1fr}}
+
 /* MOBILE */
 .mbtn{display:none;width:36px;height:36px;background:var(--d3);border:1px solid var(--bo);border-radius:8px;align-items:center;justify-content:center;cursor:pointer;color:var(--tx)}
 .ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
