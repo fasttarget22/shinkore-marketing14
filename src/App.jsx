@@ -1452,6 +1452,8 @@ function ClockPage({user,data,setData,toast}){
 
   const doClockIn=(alloc)=>{
     if(!gps) return toast("Capture GPS first!");
+    if(alloc.from_date&&today<alloc.from_date) return toast(`Your duty at this stall starts on ${alloc.from_date}`);
+    if(alloc.to_date&&today>alloc.to_date) return toast(`Your duty at this stall ended on ${alloc.to_date}`);
     const stall=(data.stalls||[]).find(s=>s.id===alloc.stall_id);
     if(!stall) return toast("Stall not found.");
     const dist=haversine(gps.lat,gps.lng,Number(stall.latitude),Number(stall.longitude));
@@ -6047,6 +6049,8 @@ function DTDDashPage({user,toast}){
   };
 
   const doClockIn=async()=>{
+    if(activeCampaign.start_date&&today<activeCampaign.start_date) return toast(`This campaign starts on ${activeCampaign.start_date}`);
+    if(activeCampaign.end_date&&today>activeCampaign.end_date) return toast(`This campaign ended on ${activeCampaign.end_date}`);
     setClockLoading(true);
     const row={id:crypto.randomUUID(),campaign_id:activeCampaign.id,ba_id:user.id,clock_in:new Date().toISOString(),clock_out:null,work_date:today};
     const{error}=await SB.from("sm_dtd_clock").insert([row]);
