@@ -64,6 +64,17 @@ const getClientSettings=(client)=>{
       sales:    s.activities?.sales   ??true,
     },
     bonus: s.bonus||{metric:"units",tiers:[]},
+    dailyReport:{
+      enabled:       s.dailyReport?.enabled??false,
+      fields:{
+        interceptions: s.dailyReport?.fields?.interceptions??true,
+        ecc:           s.dailyReport?.fields?.ecc??true,
+        cc:            s.dailyReport?.fields?.cc??true,
+        sale_amount:   s.dailyReport?.fields?.sale_amount??true,
+        notes:         s.dailyReport?.fields?.notes??false,
+      },
+      custom_fields: s.dailyReport?.custom_fields||[],
+    },
   };
 };
 
@@ -1721,6 +1732,7 @@ function ClockPage({user,data,setData,toast}){
   const [rSaleAmt,setRSaleAmt]=useState("");
   const [rNotes,setRNotes]=useState("");
   const [rSubmitting,setRSubmitting]=useState(false);
+  const [rCustomValues,setRCustomValues]=useState({});
 
   const getGPS=()=>{
     setGpsErr(""); setLoading(true);
@@ -1770,14 +1782,14 @@ function ClockPage({user,data,setData,toast}){
       if(nh*60+nm<eh*60+em){toast(`Cannot clock out before duty end time (${alloc.duty_end})`);return;}
     }
     const stall=(data.stalls||[]).find(s=>s.id===att.stall_id);
+    const client=stall?.client?(data.clients||[]).find(c=>(c.name||"").toLowerCase()===(stall.client||"").toLowerCase()||(c.brand||"").toLowerCase()===(stall.client||"").toLowerCase()):null;
+    const drCfg=getClientSettings(client).dailyReport;
+    if(!drCfg.enabled){performClockOut(att,now);toast(`Clocked out — ${now}`);return;}
     const sup=(data.users||[]).find(u=>u.role==="supervisor"&&(user.sup_id?u.id===user.sup_id:(user.team&&u.team===user.team)));
-    setRInter("");setREcc("");setRCc("");setRUnitSales({});setRSaleAmt("");setRNotes("");
-    setReportFor({att,stall,timeOut:now,supervisor:sup});
-    if(stall?.client){
-      const client=(data.clients||[]).find(c=>(c.name||"").toLowerCase()===(stall.client||"").toLowerCase()||(c.brand||"").toLowerCase()===(stall.client||"").toLowerCase());
-      if(client){setRLoadingProds(true);SB.from("sm_products").select("*").eq("client_id",client.id).then(({data:rows})=>{setRProducts(rows||[]);setRLoadingProds(false);});}
-      else{setRProducts([]);}
-    }else{setRProducts([]);}
+    setRInter("");setREcc("");setRCc("");setRUnitSales({});setRSaleAmt("");setRNotes("");setRCustomValues({});
+    setReportFor({att,stall,timeOut:now,supervisor:sup,client,drCfg});
+    if(client){setRLoadingProds(true);SB.from("sm_products").select("*").eq("client_id",client.id).then(({data:rows})=>{setRProducts(rows||[]);setRLoadingProds(false);});}
+    else{setRProducts([]);}
   };
 
   const skipReport=()=>{
@@ -1788,24 +1800,33 @@ function ClockPage({user,data,setData,toast}){
   };
 
   const submitReport=async()=>{
-    if(rInter===""||rInter===null)return toast("Enter Interceptions count.");
-    if(rEcc===""||rEcc===null)return toast("Enter ECC count.");
-    if(rCc===""||rCc===null)return toast("Enter CC count.");
-    if(!rSaleAmt||Number(rSaleAmt)<=0)return toast("Enter Sale Amount greater than 0.");
-    const{att,stall,timeOut,supervisor}=reportFor;
+    const{att,stall,timeOut,supervisor,client,drCfg}=reportFor;
+    const f=drCfg?.fields||{interceptions:true,ecc:true,cc:true,sale_amount:true};
+    if(f.interceptions&&(rInter===""||rInter===null))return toast("Enter Interceptions count.");
+    if(f.ecc&&(rEcc===""||rEcc===null))return toast("Enter ECC count.");
+    if(f.cc&&(rCc===""||rCc===null))return toast("Enter CC count.");
+    if(f.sale_amount&&(!rSaleAmt||Number(rSaleAmt)<=0))return toast("Enter Sale Amount greater than 0.");
     const reportDate=new Date().toISOString().slice(0,10);
     const ddmmyyyy=reportDate.split("-").reverse().join("/");
-    const client=stall?.client?(data.clients||[]).find(c=>(c.name||"").toLowerCase()===(stall.client||"").toLowerCase()||(c.brand||"").toLowerCase()===(stall.client||"").toLowerCase()):null;
     const unitSalesArr=rProducts.map(p=>({product_id:p.id,name:p.name,sku:p.sku,qty:Number(rUnitSales[p.id])||0})).filter(x=>x.qty>0);
     const totalUnits=unitSalesArr.reduce((s,x)=>s+x.qty,0);
-    const row={id:crypto.randomUUID(),ba_id:user.id,supervisor_id:supervisor?.id||null,stall_id:stall?.id||null,client_id:client?.id||null,report_date:reportDate,area:stall?.city||"",store_name:stall?.name||"",interceptions:Number(rInter)||0,ecc:Number(rEcc)||0,cc:Number(rCc)||0,unit_sales:unitSalesArr,total_units:totalUnits,sale_amount:Number(rSaleAmt)||0,time_in:att.clock_in,time_out:timeOut,notes:rNotes,created_at:new Date().toISOString()};
+    const cvObj={};(drCfg?.custom_fields||[]).forEach(cf=>{const v=rCustomValues[cf.id];if(v!==undefined&&v!=="")cvObj[cf.label]=v;});
+    const row={id:crypto.randomUUID(),ba_id:user.id,supervisor_id:supervisor?.id||null,stall_id:stall?.id||null,client_id:client?.id||null,report_date:reportDate,area:stall?.city||"",store_name:stall?.name||"",interceptions:f.interceptions?Number(rInter)||0:null,ecc:f.ecc?Number(rEcc)||0:null,cc:f.cc?Number(rCc)||0:null,unit_sales:unitSalesArr,total_units:totalUnits,sale_amount:f.sale_amount?Number(rSaleAmt)||0:null,time_in:att.clock_in,time_out:timeOut,notes:f.notes?rNotes:"",custom_values:cvObj,created_at:new Date().toISOString()};
     setRSubmitting(true);
     const{error}=await SB.from("sm_daily_reports").insert([row]);
     setRSubmitting(false);
     if(error){toast("Failed to save report: "+error.message);return;}
     performClockOut(att,timeOut);
-    const skuLines=unitSalesArr.map(x=>`${x.sku}: ${x.qty}`).join("\n")||"—";
-    const waMsg=`*Daily Sale Report*\n📅 Date: ${ddmmyyyy}\n👤 BA: ${user.name}\n📍 Area: ${stall?.city||"—"}\n🏪 Store: ${stall?.name||"—"}\n👔 Supervisor: ${supervisor?.name||"—"}\n\n*Interception:* ${rInter}\n*ECC:* ${rEcc}\n*CC:* ${rCc}\n\n*Unit Sales:*\n${skuLines}\n\n*Total Units:* ${totalUnits}\n*Sale Amount:* PKR ${rSaleAmt}\n\n⏰ Time In: ${att.clock_in}\n⏰ Time Out: ${timeOut}\n\n— Shinkore Marketing`;
+    let waMsg=`*Daily Sale Report*\n📅 Date: ${ddmmyyyy}\n👤 BA: ${user.name}\n📍 Area: ${stall?.city||"—"}\n🏪 Store: ${stall?.name||"—"}\n👔 Supervisor: ${supervisor?.name||"—"}`;
+    if(f.interceptions||f.ecc||f.cc) waMsg+="\n";
+    if(f.interceptions) waMsg+=`\n*Interception:* ${rInter}`;
+    if(f.ecc) waMsg+=`\n*ECC:* ${rEcc}`;
+    if(f.cc) waMsg+=`\n*CC:* ${rCc}`;
+    if(unitSalesArr.length>0){const sl=unitSalesArr.map(x=>`${x.sku}: ${x.qty}`).join("\n");waMsg+=`\n\n*Unit Sales:*\n${sl}\n*Total Units:* ${totalUnits}`;}
+    if(f.sale_amount) waMsg+=`\n*Sale Amount:* PKR ${rSaleAmt}`;
+    const cfLines=Object.entries(cvObj).map(([k,v])=>`${k}: ${v}`).join("\n");
+    if(cfLines) waMsg+=`\n\n${cfLines}`;
+    waMsg+=`\n\n⏰ Time In: ${att.clock_in}\n⏰ Time Out: ${timeOut}\n\n— Shinkore Marketing`;
     sendWA(ADMIN_PHONES[0],waMsg);
     setReportFor(null);
     toast("Report submitted! Clocked out.");
@@ -1869,64 +1890,87 @@ function ClockPage({user,data,setData,toast}){
           </div>
         );
       })}
-      {reportFor&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:999,overflowY:"auto",padding:16}}>
-          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:16,padding:20,maxWidth:480,margin:"0 auto"}}>
-            <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",marginBottom:16}}>📋 Daily Sale Report</div>
-            <div style={{background:"var(--d3)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-              <div style={{fontSize:10,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-filled Details</div>
-              {[["Date",new Date().toLocaleDateString("en-GB")],["BA Name",user.name],["Area / City",reportFor.stall?.city||"—"],["Store",reportFor.stall?.name||"—"],["Supervisor",reportFor.supervisor?.name||"—"],["Time In",reportFor.att.clock_in],["Time Out",reportFor.timeOut]].map(([l,v])=>(
-                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
-                  <span style={{fontSize:12,color:"var(--txd)"}}>{l}</span>
-                  <span style={{fontSize:12,fontWeight:600}}>{v}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-              {[["Interceptions",rInter,setRInter],["ECC",rEcc,setREcc],["CC",rCc,setRCc]].map(([l,v,sv])=>(
-                <div key={l}>
-                  <label style={{fontSize:10,color:"var(--txd)",display:"block",marginBottom:4}}>{l}</label>
-                  <input type="number" min="0" value={v} onChange={e=>sv(e.target.value)} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 6px",color:"var(--tx)",fontSize:15,fontWeight:700,textAlign:"center",boxSizing:"border-box"}}/>
-                </div>
-              ))}
-            </div>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Unit Sales by SKU</div>
-              {rLoadingProds
-                ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",padding:"8px 0"}}>Loading products…</div>
-                :rProducts.length===0
-                  ?<div style={{fontSize:12,color:"var(--txd)",background:"var(--d3)",borderRadius:8,padding:"10px 12px",fontStyle:"italic"}}>No products configured for this client.</div>
-                  :rProducts.map(p=>(
-                    <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:"var(--txd)"}}>{p.sku}</div></div>
-                      <input type="number" min="0" value={rUnitSales[p.id]||""} onChange={e=>setRUnitSales(s=>({...s,[p.id]:e.target.value}))} placeholder="0" style={{width:72,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"7px 8px",color:"var(--tx)",fontSize:15,textAlign:"right",boxSizing:"border-box"}}/>
+      {reportFor&&(()=>{
+        const dr=reportFor.drCfg||{};
+        const f=dr.fields||{interceptions:true,ecc:true,cc:true,sale_amount:true,notes:false};
+        const cfs=dr.custom_fields||[];
+        const std3=[["Interceptions",rInter,setRInter,f.interceptions],["ECC",rEcc,setREcc,f.ecc],["CC",rCc,setRCc,f.cc]].filter(x=>x[3]);
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:999,overflowY:"auto",padding:16}}>
+            <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:16,padding:20,maxWidth:480,margin:"0 auto"}}>
+              <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",marginBottom:16}}>📋 Daily Sale Report</div>
+              <div style={{background:"var(--d3)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                <div style={{fontSize:10,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-filled Details</div>
+                {[["Date",new Date().toLocaleDateString("en-GB")],["BA Name",user.name],["Area / City",reportFor.stall?.city||"—"],["Store",reportFor.stall?.name||"—"],["Supervisor",reportFor.supervisor?.name||"—"],["Time In",reportFor.att.clock_in],["Time Out",reportFor.timeOut]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+                    <span style={{fontSize:12,color:"var(--txd)"}}>{l}</span>
+                    <span style={{fontSize:12,fontWeight:600}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {std3.length>0&&(
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${std3.length},1fr)`,gap:8,marginBottom:14}}>
+                  {std3.map(([l,v,sv])=>(
+                    <div key={l}>
+                      <label style={{fontSize:10,color:"var(--txd)",display:"block",marginBottom:4}}>{l}</label>
+                      <input type="number" min="0" value={v} onChange={e=>sv(e.target.value)} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 6px",color:"var(--tx)",fontSize:15,fontWeight:700,textAlign:"center",boxSizing:"border-box"}}/>
                     </div>
-                  ))
-              }
-              {rProducts.length>0&&(
-                <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderTop:"1px solid var(--bo)",marginTop:4}}>
-                  <span style={{fontSize:12,fontWeight:700}}>Total Units</span>
-                  <span style={{fontSize:16,fontWeight:700,color:"var(--g)",fontFamily:"Rajdhani"}}>{rProducts.reduce((s,p)=>s+(Number(rUnitSales[p.id])||0),0)}</span>
+                  ))}
                 </div>
               )}
-            </div>
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Sale Amount (PKR)</label>
-              <input type="number" min="0" value={rSaleAmt} onChange={e=>setRSaleAmt(e.target.value)} placeholder="0" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:17,fontWeight:700,boxSizing:"border-box"}}/>
-            </div>
-            <div style={{marginBottom:16}}>
-              <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Notes (optional)</label>
-              <textarea value={rNotes} onChange={e=>setRNotes(e.target.value)} rows={2} placeholder="Any remarks…" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={skipReport} style={{flex:1,padding:"12px",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,color:"var(--txd)",fontSize:13,cursor:"pointer",fontWeight:600}}>Skip &amp; Clock Out</button>
-              <button onClick={submitReport} disabled={rSubmitting} style={{flex:2,padding:"12px",background:"rgba(201,168,76,.18)",border:"1px solid var(--g)",borderRadius:10,color:"var(--g)",fontSize:14,cursor:rSubmitting?"not-allowed":"pointer",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                {rSubmitting?"Submitting…":"Submit Report & Clock Out"}
-              </button>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Unit Sales by SKU</div>
+                {rLoadingProds
+                  ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",padding:"8px 0"}}>Loading products…</div>
+                  :rProducts.length===0
+                    ?<div style={{fontSize:12,color:"var(--txd)",background:"var(--d3)",borderRadius:8,padding:"10px 12px",fontStyle:"italic"}}>No products configured for this client.</div>
+                    :rProducts.map(p=>(
+                      <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:"var(--txd)"}}>{p.sku}</div></div>
+                        <input type="number" min="0" value={rUnitSales[p.id]||""} onChange={e=>setRUnitSales(s=>({...s,[p.id]:e.target.value}))} placeholder="0" style={{width:72,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"7px 8px",color:"var(--tx)",fontSize:15,textAlign:"right",boxSizing:"border-box"}}/>
+                      </div>
+                    ))
+                }
+                {rProducts.length>0&&(
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderTop:"1px solid var(--bo)",marginTop:4}}>
+                    <span style={{fontSize:12,fontWeight:700}}>Total Units</span>
+                    <span style={{fontSize:16,fontWeight:700,color:"var(--g)",fontFamily:"Rajdhani"}}>{rProducts.reduce((s,p)=>s+(Number(rUnitSales[p.id])||0),0)}</span>
+                  </div>
+                )}
+              </div>
+              {f.sale_amount&&(
+                <div style={{marginBottom:14}}>
+                  <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Sale Amount (PKR)</label>
+                  <input type="number" min="0" value={rSaleAmt} onChange={e=>setRSaleAmt(e.target.value)} placeholder="0" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:17,fontWeight:700,boxSizing:"border-box"}}/>
+                </div>
+              )}
+              {cfs.length>0&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:11,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Additional Fields</div>
+                  {cfs.map(cf=>(
+                    <div key={cf.id} style={{marginBottom:10}}>
+                      <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>{cf.label}</label>
+                      <input type={cf.type||"text"} value={rCustomValues[cf.id]||""} onChange={e=>setRCustomValues(s=>({...s,[cf.id]:e.target.value}))} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"9px 12px",color:"var(--tx)",fontSize:14,boxSizing:"border-box"}}/>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {f.notes&&(
+                <div style={{marginBottom:16}}>
+                  <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Notes (optional)</label>
+                  <textarea value={rNotes} onChange={e=>setRNotes(e.target.value)} rows={2} placeholder="Any remarks…" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+                </div>
+              )}
+              <div style={{display:"flex",gap:10,marginTop:4}}>
+                <button onClick={skipReport} style={{flex:1,padding:"12px",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,color:"var(--txd)",fontSize:13,cursor:"pointer",fontWeight:600}}>Skip &amp; Clock Out</button>
+                <button onClick={submitReport} disabled={rSubmitting} style={{flex:2,padding:"12px",background:"rgba(201,168,76,.18)",border:"1px solid var(--g)",borderRadius:10,color:"var(--g)",fontSize:14,cursor:rSubmitting?"not-allowed":"pointer",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  {rSubmitting?"Submitting…":"Submit Report & Clock Out"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -1959,8 +2003,17 @@ function DailySaleReportsPage({data,toast}){
 
   const buildWAMsg=(r)=>{
     const d=(r.report_date||"").split("-").reverse().join("/")||"—";
-    const skus=(r.unit_sales||[]).map(x=>`${x.sku||x.name}: ${x.qty}`).join("\n")||"—";
-    return `*Daily Sale Report*\n📅 Date: ${d}\n👤 BA: ${baNameFn(r.ba_id)}\n📍 Area: ${r.area||"—"}\n🏪 Store: ${r.store_name||"—"}\n👔 Supervisor: ${supNameFn(r.supervisor_id)}\n\n*Interception:* ${r.interceptions||0}\n*ECC:* ${r.ecc||0}\n*CC:* ${r.cc||0}\n\n*Unit Sales:*\n${skus}\n\n*Total Units:* ${r.total_units||0}\n*Sale Amount:* PKR ${r.sale_amount||0}\n\n⏰ Time In: ${r.time_in||"—"}\n⏰ Time Out: ${r.time_out||"—"}\n\n— Shinkore Marketing`;
+    const skus=(r.unit_sales||[]).map(x=>`${x.sku||x.name}: ${x.qty}`).join("\n");
+    let msg=`*Daily Sale Report*\n📅 Date: ${d}\n👤 BA: ${baNameFn(r.ba_id)}\n📍 Area: ${r.area||"—"}\n🏪 Store: ${r.store_name||"—"}\n👔 Supervisor: ${supNameFn(r.supervisor_id)}`;
+    if(r.interceptions!==null&&r.interceptions!==undefined) msg+=`\n\n*Interception:* ${r.interceptions}`;
+    if(r.ecc!==null&&r.ecc!==undefined) msg+=`\n*ECC:* ${r.ecc}`;
+    if(r.cc!==null&&r.cc!==undefined) msg+=`\n*CC:* ${r.cc}`;
+    if(skus) msg+=`\n\n*Unit Sales:*\n${skus}\n*Total Units:* ${r.total_units||0}`;
+    if(r.sale_amount!==null&&r.sale_amount!==undefined) msg+=`\n*Sale Amount:* PKR ${r.sale_amount}`;
+    const cvEntries=Object.entries(r.custom_values||{});
+    if(cvEntries.length>0) msg+="\n\n"+cvEntries.map(([k,v])=>`${k}: ${v}`).join("\n");
+    msg+=`\n\n⏰ Time In: ${r.time_in||"—"}\n⏰ Time Out: ${r.time_out||"—"}\n\n— Shinkore Marketing`;
+    return msg;
   };
 
   const totalSale=filtered.reduce((s,r)=>s+Number(r.sale_amount||0),0);
@@ -2033,7 +2086,18 @@ function DailySaleReportsPage({data,toast}){
                   <span style={{fontSize:12,color:"var(--txd)"}}>Supervisor: {supNameFn(r.supervisor_id)}</span>
                   <span style={{fontSize:12,color:"var(--txd)"}}>{r.time_in||"—"} → {r.time_out||"—"}</span>
                 </div>
-                {r.notes&&<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",marginBottom:8}}>Notes: {r.notes}</div>}
+                {r.notes&&<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",marginBottom:6}}>Notes: {r.notes}</div>}
+                {Object.keys(r.custom_values||{}).length>0&&(
+                  <div style={{marginTop:6,marginBottom:6}}>
+                    <div style={{fontSize:10,color:"var(--txd)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>Additional Fields</div>
+                    {Object.entries(r.custom_values||{}).map(([k,v])=>(
+                      <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--bo)"}}>
+                        <span style={{fontSize:12,color:"var(--txd)"}}>{k}</span>
+                        <span style={{fontSize:12,fontWeight:600}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{marginTop:10}}>
                   <button onClick={()=>sendWA(ADMIN_PHONES[0],buildWAMsg(r))} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,color:"#25D366",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                     <I n="wa" s={13}/>Resend WA Report
@@ -5350,8 +5414,11 @@ function ClientPortalPage({user,data,toast,view}){
                     </div>
                   )}
                   <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
-                    {[["Interceptions",r.interceptions||0],["ECC",r.ecc||0],["CC",r.cc||0]].map(([l,v])=>(
+                    {[["Interceptions",r.interceptions],["ECC",r.ecc],["CC",r.cc]].filter(([,v])=>v!==null&&v!==undefined).map(([l,v])=>(
                       <span key={l} style={{fontSize:10,color:"var(--txd)"}}>{l}: <strong style={{color:"var(--tx)"}}>{v}</strong></span>
+                    ))}
+                    {Object.entries(r.custom_values||{}).map(([k,v])=>(
+                      <span key={k} style={{fontSize:10,color:"var(--txd)"}}>{k}: <strong style={{color:"var(--tx)"}}>{v}</strong></span>
                     ))}
                   </div>
                 </div>
@@ -6464,6 +6531,7 @@ function ClientControlPanelPage({data,setData,toast}){
     return m;
   });
   const [bonusSaving,setBonusSaving]=useState({});
+  const [drEdits,setDrEdits]=useState(()=>{const m={};(data.clients||[]).forEach(c=>{m[c.id]={newLabel:"",newType:"number"};});return m;});
 
   const saveSettings=(client,newSettings)=>{
     const updated=clients.map(c=>c.id===client.id?{...c,settings:newSettings}:c);
@@ -6499,6 +6567,28 @@ function ClientControlPanelPage({data,setData,toast}){
   const addTier=(clientId)=>setBE(clientId,e=>({...e,tiers:[...e.tiers,{pct:"",amount:""}]}));
   const removeTier=(clientId,idx)=>setBE(clientId,e=>({...e,tiers:e.tiers.filter((_,i)=>i!==idx)}));
   const setTierField=(clientId,idx,key,val)=>setBE(clientId,e=>{const t=[...e.tiers];t[idx]={...t[idx],[key]:val};return{...e,tiers:t};});
+
+  const toggleDR=(client,path,value)=>{
+    const cs=getClientSettings(client);
+    let dr={...cs.dailyReport};
+    if(path==="enabled") dr={...dr,enabled:value};
+    else{const field=path.slice(7);dr={...dr,fields:{...dr.fields,[field]:value}};}
+    saveSettings(client,{...cs,dailyReport:dr});
+  };
+  const setDrEdit=(clientId,k,v)=>setDrEdits(p=>({...p,[clientId]:{...p[clientId],[k]:v}}));
+  const addCustomField=(client)=>{
+    const e=drEdits[client.id]||{newLabel:"",newType:"number"};
+    if(!e.newLabel.trim())return toast("Enter a field label.");
+    const cs=getClientSettings(client);
+    const cf=[...(cs.dailyReport.custom_fields||[]),{id:genId(),label:e.newLabel.trim(),type:e.newType}];
+    saveSettings(client,{...cs,dailyReport:{...cs.dailyReport,custom_fields:cf}});
+    setDrEdit(client.id,"newLabel","");
+  };
+  const removeCustomField=(client,cfId)=>{
+    const cs=getClientSettings(client);
+    const cf=(cs.dailyReport.custom_fields||[]).filter(f=>f.id!==cfId);
+    saveSettings(client,{...cs,dailyReport:{...cs.dailyReport,custom_fields:cf}});
+  };
 
   const Row=({label,val,onToggle})=>(
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid var(--bo)"}}>
@@ -6562,6 +6652,41 @@ function ClientControlPanelPage({data,setData,toast}){
                 <button className="bic" style={{fontSize:12}} onClick={()=>addTier(client.id)}><I n="plus" s={12}/>Add Tier</button>
                 <button className="bg" style={{fontSize:12}} onClick={()=>saveBonusCriteria(client)} disabled={bonusSaving[client.id]}>{bonusSaving[client.id]?"Saving…":"Save Bonus"}</button>
               </div>
+
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginTop:16,marginBottom:4}}>Daily Sale Report at Clock-Out</div>
+              <Row label="Enable daily report at clock-out" val={cs.dailyReport.enabled} onToggle={v=>toggleDR(client,"enabled",v)}/>
+              {cs.dailyReport.enabled&&(
+                <>
+                  <div style={{fontSize:11,color:"var(--txd)",fontWeight:700,marginTop:10,marginBottom:6}}>Standard Fields</div>
+                  <Row label="Interceptions" val={cs.dailyReport.fields.interceptions} onToggle={v=>toggleDR(client,"fields.interceptions",v)}/>
+                  <Row label="ECC" val={cs.dailyReport.fields.ecc} onToggle={v=>toggleDR(client,"fields.ecc",v)}/>
+                  <Row label="CC" val={cs.dailyReport.fields.cc} onToggle={v=>toggleDR(client,"fields.cc",v)}/>
+                  <Row label="Sale Amount PKR" val={cs.dailyReport.fields.sale_amount} onToggle={v=>toggleDR(client,"fields.sale_amount",v)}/>
+                  <Row label="Notes" val={cs.dailyReport.fields.notes} onToggle={v=>toggleDR(client,"fields.notes",v)}/>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid var(--bo)"}}>
+                    <span style={{fontSize:13}}>SKU Quantities</span>
+                    <span style={{fontSize:11,color:"var(--txd)",fontStyle:"italic"}}>Always included</span>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--txd)",fontWeight:700,marginTop:10,marginBottom:6}}>Custom Fields</div>
+                  {(cs.dailyReport.custom_fields||[]).length===0
+                    ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",marginBottom:6}}>No custom fields yet.</div>
+                    :(cs.dailyReport.custom_fields||[]).map(cf=>(
+                      <div key={cf.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                        <div style={{flex:1}}><span style={{fontSize:13}}>{cf.label}</span> <span style={{fontSize:10,color:"var(--txd)",background:"var(--d3)",borderRadius:4,padding:"1px 5px"}}>{cf.type}</span></div>
+                        <button className="brd" style={{padding:"3px 8px"}} onClick={()=>removeCustomField(client,cf.id)}><I n="del" s={12}/></button>
+                      </div>
+                    ))
+                  }
+                  <div style={{display:"flex",gap:8,marginTop:6}}>
+                    <input value={(drEdits[client.id]||{}).newLabel||""} onChange={e=>setDrEdit(client.id,"newLabel",e.target.value)} placeholder="Field label" className="fi" style={{flex:1,fontSize:12}}/>
+                    <select value={(drEdits[client.id]||{}).newType||"number"} onChange={e=>setDrEdit(client.id,"newType",e.target.value)} className="fi" style={{width:85,fontSize:12}}>
+                      <option value="number">Number</option>
+                      <option value="text">Text</option>
+                    </select>
+                    <button className="bic" style={{fontSize:12,flexShrink:0}} onClick={()=>addCustomField(client)}><I n="plus" s={12}/>Add</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );
