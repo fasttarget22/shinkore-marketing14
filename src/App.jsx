@@ -492,6 +492,64 @@ function BASubTabBar({page,setPage}){
   );
 }
 
+// ─── SUPERVISOR BOTTOM NAV + SUB-TAB BAR ─────────────────────────────────────
+const SUP_MASTER_OF=(p)=>{
+  if(["attend","alerts"].includes(p)) return "team";
+  if(["dtd-dash","activity"].includes(p)) return "fieldops";
+  return "home";
+};
+
+function SupBottomNav({page,setPage}){
+  const master=SUP_MASTER_OF(page);
+  const tabs=[
+    {id:"home",     icon:"home",  label:"Home",       first:"my-dash"},
+    {id:"team",     icon:"users", label:"My Team",    first:"attend"},
+    {id:"fieldops", icon:"map",   label:"Field Ops",  first:"dtd-dash"},
+  ];
+  return(
+    <nav style={{position:"fixed",bottom:0,left:0,right:0,height:58,background:"var(--d2)",borderTop:"1px solid var(--bo)",display:"flex",zIndex:200}}>
+      {tabs.map(t=>{
+        const active=master===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.first)} style={{flex:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",color:active?"var(--g)":"var(--txd)",padding:"6px 0",minHeight:44}}>
+            {active&&<div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:36,height:2,background:"var(--g)",borderRadius:"0 0 2px 2px"}}/>}
+            <I n={t.icon} s={20} c={active?"var(--g)":"var(--txd)"}/>
+            <span style={{fontSize:10,fontWeight:active?700:400,letterSpacing:.3,lineHeight:1}}>{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function SupSubTabBar({page,setPage}){
+  const subTabs={
+    team:[
+      {id:"attend",  label:"Attendance"},
+      {id:"alerts",  label:"Late Alerts"},
+    ],
+    fieldops:[
+      {id:"dtd-dash", label:"DTD Overview"},
+      {id:"activity", label:"Activity Approvals"},
+    ],
+  };
+  const master=SUP_MASTER_OF(page);
+  const tabs=subTabs[master];
+  if(!tabs) return null;
+  return(
+    <div style={{display:"flex",gap:6,padding:"8px 12px",borderBottom:"1px solid var(--bo)",overflowX:"auto",scrollbarWidth:"none",background:"var(--d2)",flexShrink:0,position:"sticky",top:0,zIndex:50}}>
+      {tabs.map(t=>{
+        const active=page===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.id)} style={{flexShrink:0,padding:"5px 14px",borderRadius:20,border:`1px solid ${active?"var(--g)":"var(--bo)"}`,background:active?"rgba(201,168,76,.15)":"transparent",color:active?"var(--g)":"var(--txd)",fontSize:12,fontWeight:active?600:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 function AdminDash({data,toast,setPage}){
   const hour = new Date().getHours();
@@ -6616,9 +6674,11 @@ export default function App(){
             <button className="bic" onClick={logout} title="Logout"><I n="out" s={15}/></button>
           </div>
           {user.role==="ba"&&<BASubTabBar page={page} setPage={setPage}/>}
-          <div className="content" style={user.role==="ba"?{paddingBottom:70}:{}}>{render()}</div>
+          {user.role==="supervisor"&&<SupSubTabBar page={page} setPage={setPage}/>}
+          <div className="content" style={(user.role==="ba"||user.role==="supervisor")?{paddingBottom:70}:{}}>{render()}</div>
         </main>
         {user.role==="ba"&&<BABottomNav page={page} setPage={setPage}/>}
+        {user.role==="supervisor"&&<SupBottomNav page={page} setPage={setPage}/>}
       </div>
       {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>}
     </>
