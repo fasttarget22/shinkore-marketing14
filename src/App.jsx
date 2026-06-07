@@ -4308,6 +4308,10 @@ function ClientPortalPage({user,data,toast,view}){
   const [stalls,setStalls]=useState([]);
   const [campTargets,setCampTargets]=useState([]);
   const [selCampId,setSelCampId]=useState("all");
+  const [stallAllocations,setStallAllocations]=useState([]);
+  const [stallAttendance,setStallAttendance]=useState([]);
+  const [expandedCals,setExpandedCals]=useState([]);
+  const [calDayInfo,setCalDayInfo]=useState(null);
 
   useEffect(()=>{loadAll();},[]);
   useEffect(()=>{
@@ -4330,6 +4334,8 @@ function ClientPortalPage({user,data,toast,view}){
     ]);
     setStalls(sRes.data||[]);
     setProducts(pRes.data||[]);
+    const stallIds=(sRes.data||[]).map(s=>s.id);
+    if(stallIds.length>0){const[saRes,attRes]=await Promise.all([SB.from("sm_allocations").select("id,stall_id,user_id,active,from_date,to_date").in("stall_id",stallIds),SB.from("sm_attendance").select("id,user_id,stall_id,date,clock_in").in("stall_id",stallIds)]);setStallAllocations(saRes.data||[]);setStallAttendance(attRes.data||[]);}
 
     if(campIds.length>0){
       const lastMonthStart=lastMonth+"-01";
@@ -4812,43 +4818,169 @@ function ClientPortalPage({user,data,toast,view}){
   }
 
   // ── STALLS VIEW ───────────────────────────────────────────────────────
+  const totalStallsCnt=stalls.length;
+  const activeStallsCnt=stalls.filter(s=>s.from_date&&s.to_date&&s.from_date<=today&&s.to_date>=today).length;
+  const endedStallsCnt=stalls.filter(s=>s.to_date&&s.to_date<today).length;
+  const upcomingStallsCnt=stalls.filter(s=>s.from_date&&s.from_date>today).length;
+  const cal30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));return d.toISOString().slice(0,10);});
+  const calFirstDow=(new Date(cal30[0]).getDay()+6)%7;
+  const calPadded=[...Array(calFirstDow).fill(null),...cal30];
+  const calWeeks=[];for(let i=0;i<calPadded.length;i+=7)calWeeks.push(calPadded.slice(i,i+7));
+  const stallBaIds=(sid)=>[...new Set(stallAllocations.filter(a=>a.stall_id===sid).map(a=>a.user_id))];
+  const calcAttRate=(stall)=>{
+    if(!stall.from_date||!stall.to_date||stall.from_date>today)return null;
+    const endCap=stall.to_date<today?stall.to_date:today;
+    const expected=Math.max(1,Math.round((new Date(endCap)-new Date(stall.from_date))/86400000)+1);
+    const actual=[...new Set(stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=stall.from_date&&a.date<=today).map(a=>a.date))].length;
+    return{pct:Math.round(actual/expected*100),actual,expected};
+  };
+  const getDayStatus=(stall,date)=>{
+    if(!stall.from_date||!stall.to_date||date<stall.from_date||date>stall.to_date||date>today)return"outside";
+    const bids=stallBaIds(stall.id);
+    const dayAtt=stallAttendance.filter(a=>a.stall_id===stall.id&&a.date===date);
+    if(bids.length===0||dayAtt.length===0)return"none";
+    return dayAtt.length>=bids.length?"full":"partial";
+  };
+  const DC={full:"#2ECC71",partial:"#F39C12",none:"rgba(231,76,60,.7)",outside:"rgba(255,255,255,.04)"};
+  const actCfg={sampling:{c:"#3A9BD5",b:"rgba(58,155,213,.12)",l:"Sampling"},gifting:{c:"#C9A84C",b:"rgba(201,168,76,.12)",l:"Gifting"},sales:{c:"#2ECC71",b:"rgba(46,204,113,.12)",l:"Sales"}};
+  const SmKpi=({icon,label,value,color})=>(
+    <div style={{...cardS,textAlign:"center",padding:"14px 10px"}}>
+      <div style={{fontSize:20,marginBottom:4}}>{icon}</div>
+      {loading?<div style={{height:26,background:"var(--d3)",borderRadius:6,margin:"4px auto",width:40}}/>:<div style={{fontFamily:"Rajdhani",fontSize:24,fontWeight:700,color:color||"var(--g)",lineHeight:1}}>{value}</div>}
+      <div style={{fontSize:10,color:"var(--txd)",marginTop:4,textTransform:"uppercase",letterSpacing:.4,lineHeight:1.3}}>{label}</div>
+    </div>
+  );
   return(
     <div>
-      <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
-        <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📍</div>
-        <div>
-          <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
-          <div style={{fontSize:12,color:"var(--txd)"}}>Permission Stalls · Client Portal</div>
-        </div>
+      <div style={{background:"linear-gradient(135deg,var(--d3),var(--d4))",border:"1px solid var(--bo)",borderRadius:14,padding:"18px 20px",marginBottom:16}}>
+        <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",lineHeight:1}}>Permission Stalls</div>
+        <div style={{fontSize:11,color:"var(--txd)",marginTop:3,letterSpacing:.5}}>{user.name} · Client Portal</div>
       </div>
-      {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading stalls…</div></div>}
-      {!loading&&<div className="card">
-        <div className="ch"><I n="pin" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Your Stalls</div><div className="cs">{stalls.length} stalls</div></div></div>
-        <div className="cb">
-          {stalls.length===0
-            ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:36,marginBottom:8}}>📍</div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>No stalls assigned yet</div></div>
-            :<div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead><tr>
-                  <th style={thS}>Location</th><th style={thS}>City</th>
-                  <th style={thS}>Dates</th><th style={{...thS,textAlign:"center"}}>Status</th>
-                </tr></thead>
-                <tbody>{stalls.map(s=>{
-                  const st=stallStatus(s);
-                  return(<tr key={s.id}>
-                    <td style={tdS}>{s.name}</td>
-                    <td style={tdS}>{s.city||"—"}</td>
-                    <td style={tdS}>{s.from_date||"?"} → {s.to_date||"?"}</td>
-                    <td style={{...tdS,textAlign:"center"}}>
-                      <span style={{fontSize:11,padding:"2px 10px",borderRadius:20,fontWeight:600,color:st.color,border:"1px solid "+st.color,background:st.color+"22"}}>{st.label}</span>
-                    </td>
-                  </tr>);
-                })}</tbody>
-              </table>
+      <div className="cp-kpi" style={{marginBottom:16}}>
+        <SmKpi icon="🏪" label="Total Stalls" value={totalStallsCnt} color="var(--g)"/>
+        <SmKpi icon="🟢" label="Active" value={activeStallsCnt} color="var(--gr)"/>
+        <SmKpi icon="🔴" label="Ended" value={endedStallsCnt} color="var(--txd)"/>
+        <SmKpi icon="🟡" label="Upcoming" value={upcomingStallsCnt} color="#3498db"/>
+      </div>
+      {loading&&[1,2,3].map(i=><div key={i} style={{height:160,background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,marginBottom:12,opacity:.5}}/>)}
+      {!loading&&stalls.length===0&&<div style={{...cardS,textAlign:"center",padding:"48px 20px"}}><div style={{fontSize:48,marginBottom:12}}>📍</div><div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--tx)"}}>No stalls yet</div><div style={{fontSize:13,color:"var(--txd)",marginTop:4}}>Your assigned stalls will appear here.</div></div>}
+      {!loading&&stalls.map(stall=>{
+        const st=stallStatus(stall);
+        const baIds=stallBaIds(stall.id);
+        const rate=calcAttRate(stall);
+        const rc=rate===null?"var(--txd)":rate.pct>=80?"var(--gr)":rate.pct>=50?"var(--or)":"var(--rd)";
+        const totalDays=stall.from_date&&stall.to_date?Math.max(0,Math.round((new Date(stall.to_date)-new Date(stall.from_date))/86400000)+1):null;
+        const elapsedDays=stall.from_date&&stall.from_date<=today?Math.min(totalDays||0,Math.round((new Date(today)-new Date(stall.from_date))/86400000)+1):0;
+        const activities=Array.isArray(stall.activities)?stall.activities:[];
+        const isExpanded=expandedCals.includes(stall.id);
+        return(
+          <div key={stall.id} style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,marginBottom:14,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:"1px solid var(--bo)"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:8}}>
+                <div>
+                  <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)",lineHeight:1.1}}>📍 {stall.name}</div>
+                  {stall.city&&<div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>{stall.city}</div>}
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,padding:"2px 10px",borderRadius:20,fontWeight:700,color:st.color,border:"1px solid "+st.color,background:st.color+"22",whiteSpace:"nowrap"}}>{st.label}</span>
+                  {stall.latitude&&stall.longitude&&<a href={"https://maps.google.com/?q="+stall.latitude+","+stall.longitude} target="_blank" rel="noopener noreferrer" style={{fontSize:10,padding:"2px 10px",borderRadius:20,fontWeight:700,color:"#3A9BD5",border:"1px solid rgba(58,155,213,.4)",background:"rgba(58,155,213,.08)",textDecoration:"none",whiteSpace:"nowrap"}}>🗺 Map</a>}
+                </div>
+              </div>
+              <div style={{fontSize:12,color:"var(--txd)",marginBottom:8}}>
+                📅 {stall.from_date||"?"} → {stall.to_date||"?"}
+                {totalDays!==null&&<span style={{marginLeft:10}}>⏱ {totalDays}d total · {elapsedDays}d elapsed</span>}
+              </div>
+              {activities.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                {activities.map(a=>{const s=actCfg[a]||{c:"var(--txd)",b:"rgba(255,255,255,.05)",l:a};return<span key={a} style={{fontSize:10,padding:"2px 8px",borderRadius:12,fontWeight:700,color:s.c,background:s.b,border:"1px solid "+s.c+"55",textTransform:"capitalize"}}>{s.l}</span>;})}
+              </div>}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div style={{background:"var(--d3)",borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>Staff Assigned</div>
+                  <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",lineHeight:1}}>{baIds.length}</div>
+                  <div style={{fontSize:11,color:"var(--txd)",marginTop:1}}>field rep{baIds.length!==1?"s":""}</div>
+                </div>
+                <div style={{background:"var(--d3)",borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>Attendance Rate</div>
+                  {rate===null
+                    ?<div style={{fontSize:11,color:"var(--txd)",fontStyle:"italic"}}>Not started yet</div>
+                    :<>
+                      <div style={{height:5,background:"var(--d4)",borderRadius:3,overflow:"hidden",marginBottom:5}}>
+                        <div style={{height:"100%",width:Math.min(rate.pct,100)+"%",background:rc,borderRadius:3}}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{fontSize:10,color:"var(--txd)"}}>{rate.actual} / {rate.expected} days</div>
+                        <div style={{fontSize:13,fontWeight:700,color:rc}}>{rate.pct}%</div>
+                      </div>
+                    </>
+                  }
+                </div>
+              </div>
             </div>
-          }
-        </div>
-      </div>}
+            <div style={{padding:"12px 18px"}}>
+              {!isExpanded
+                ?<button onClick={()=>setExpandedCals(p=>[...p,stall.id])} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 12px",cursor:"pointer",color:"var(--txd)",fontSize:12,fontWeight:600,textAlign:"center"}}>📅 View Attendance Calendar (30 days)</button>
+                :<div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.5}}>Attendance · Last 30 Days</div>
+                    <button onClick={()=>{setExpandedCals(p=>p.filter(x=>x!==stall.id));setCalDayInfo(null);}} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txd)",fontSize:11,padding:"2px 6px",borderRadius:4}}>✕ Hide</button>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                    {[{c:"#2ECC71",l:"Full"},{c:"#F39C12",l:"Partial"},{c:"rgba(231,76,60,.7)",l:"None"},{c:"rgba(255,255,255,.06)",l:"Outside"}].map(({c,l})=>(
+                      <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"var(--txd)"}}>
+                        <div style={{width:8,height:8,borderRadius:2,background:c,border:"1px solid rgba(255,255,255,.1)",flexShrink:0}}/>
+                        {l}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
+                    {["M","T","W","T","F","S","S"].map((d,i)=><div key={i} style={{textAlign:"center",fontSize:9,color:"var(--txd)",fontWeight:700,padding:"2px 0"}}>{d}</div>)}
+                  </div>
+                  {calWeeks.map((week,wi)=>(
+                    <div key={wi} style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
+                      {week.map((date,di)=>{
+                        if(!date)return<div key={di} style={{aspectRatio:"1"}}/>;
+                        const status=getDayStatus(stall,date);
+                        const bg=DC[status];
+                        const [,,dd]=date.split("-");
+                        const isSel=calDayInfo?.stallId===stall.id&&calDayInfo?.date===date;
+                        return(
+                          <div key={date} onClick={()=>{
+                            if(status==="outside"){setCalDayInfo(null);return;}
+                            const dayAtt=stallAttendance.filter(a=>a.stall_id===stall.id&&a.date===date);
+                            const checkedIn=dayAtt.map(a=>a.user_id);
+                            const missed=baIds.filter(id=>!checkedIn.includes(id));
+                            setCalDayInfo(isSel?null:{stallId:stall.id,date,checkedIn,missed});
+                          }} style={{aspectRatio:"1",borderRadius:4,background:bg,display:"flex",alignItems:"center",justifyContent:"center",cursor:status!=="outside"?"pointer":"default",border:isSel?"1px solid var(--g)":"1px solid transparent"}}>
+                            <div style={{fontSize:8,fontWeight:600,color:status==="outside"?"rgba(255,255,255,.2)":"#fff",lineHeight:1}}>{dd}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  {calDayInfo&&calDayInfo.stallId===stall.id&&(
+                    <div style={{marginTop:8,background:"var(--d3)",borderRadius:8,padding:"10px 12px",border:"1px solid var(--bo)"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"var(--g)",marginBottom:6}}>📅 {calDayInfo.date}</div>
+                      {calDayInfo.checkedIn.length>0&&<div style={{marginBottom:6}}>
+                        <div style={{fontSize:9,color:"var(--gr)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Checked In ({calDayInfo.checkedIn.length})</div>
+                        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                          {calDayInfo.checkedIn.map(id=>{const u=(data.users||[]).find(x=>x.id===id);return<span key={id} style={{fontSize:11,background:"rgba(46,204,113,.12)",border:"1px solid rgba(46,204,113,.3)",borderRadius:6,padding:"2px 8px",color:"var(--gr)"}}>{u?u.name.split(" ")[0]:"Staff"}</span>;})}
+                        </div>
+                      </div>}
+                      {calDayInfo.missed.length>0&&<div>
+                        <div style={{fontSize:9,color:"var(--rd)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Absent ({calDayInfo.missed.length})</div>
+                        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                          {calDayInfo.missed.map(id=>{const u=(data.users||[]).find(x=>x.id===id);return<span key={id} style={{fontSize:11,background:"rgba(231,76,60,.12)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,padding:"2px 8px",color:"var(--rd)"}}>{u?u.name.split(" ")[0]:"Staff"}</span>;})}
+                        </div>
+                      </div>}
+                      {calDayInfo.checkedIn.length===0&&calDayInfo.missed.length===0&&<div style={{fontSize:12,color:"var(--txd)"}}>No staff data for this day.</div>}
+                    </div>
+                  )}
+                </div>
+              }
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
