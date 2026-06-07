@@ -1,6 +1,6 @@
 // rebuild trigger 1
 import { useState, useEffect, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { css } from "./styles.js";
 import { createClient } from "@supabase/supabase-js";
 const SB=createClient("https://isqlqmhueoiwnlcsvsfg.supabase.co","sb_publishable_hPu0RIbvCd_DBCM4s2lH2g_U6CONZdr");
@@ -4307,8 +4307,15 @@ function ClientPortalPage({user,data,toast,view}){
   const [products,setProducts]=useState([]);
   const [stalls,setStalls]=useState([]);
   const [campTargets,setCampTargets]=useState([]);
+  const [selCampId,setSelCampId]=useState("all");
 
   useEffect(()=>{loadAll();},[]);
+  useEffect(()=>{
+    if(!loading&&view==="dtd"&&campaigns.length>0){
+      const active=campaigns.filter(c=>c.status==="active"||(c.end_date&&c.end_date>=today)).sort((a,b)=>(b.start_date||"")>(a.start_date||"")?1:-1);
+      if(active.length>0)setSelCampId(active[0].id);
+    }
+  },[loading]);
 
   const loadAll=async()=>{
     setLoading(true);
@@ -4327,7 +4334,7 @@ function ClientPortalPage({user,data,toast,view}){
     if(campIds.length>0){
       const lastMonthStart=lastMonth+"-01";
       const[vRes,tRes]=await Promise.all([
-        SB.from("sm_door_visits").select("id,campaign_id,ba_id,visit_time,customer_name").in("campaign_id",campIds).gte("visit_time",lastMonthStart).order("visit_time",{ascending:false}),
+        SB.from("sm_door_visits").select("id,campaign_id,ba_id,visit_time,customer_name,sop_checklist").in("campaign_id",campIds).gte("visit_time",lastMonthStart).order("visit_time",{ascending:false}),
         SB.from("sm_campaign_targets").select("*").in("campaign_id",campIds),
       ]);
       const visitRows=vRes.data||[];
@@ -4541,48 +4548,265 @@ function ClientPortalPage({user,data,toast,view}){
 
   // ── DTD VIEW ──────────────────────────────────────────────────────────
   if(view==="dtd"){
-    const displayVisits=allVisits.slice(0,50);
-    const visitItemCount=(vid)=>allItems.filter(i=>i.visit_id===vid).length;
+    // ── Filtered data ───────────────────────────────────────────────────
+    const filteredVisits=selCampId==="all"?allVisits:allVisits.filter(v=>v.campaign_id===selCampId);
+    const filteredVIds=new Set(filteredVisits.map(v=>v.id));
+    const filteredItems=allItems.filter(i=>filteredVIds.has(i.visit_id));
+    const selCamp=campaigns.find(c=>c.id===selCampId)||null;
+    const displayVisits=filteredVisits.slice(0,50);
+
+    // ── Campaign Progress ──────────────────────────────────────────────
+    let doorP=null,unitP=null,revP=null;
+    if(selCamp&&selCamp.start_date){
+      const tgts=campTargets.filter(t=>t.campaign_id===selCampId);
+      if(tgts.length>0){
+        const periodEnd=selCamp.end_date&&selCamp.end_date<today?selCamp.end_date:today;
+        const workdays=Math.max(1,Math.round((new Date(periodEnd)-new Date(selCamp.start_date))/86400000)+1);
+        const tDoors=tgts.reduce((s,t)=>s+(Number(t.doors_per_day)||0)*workdays,0);
+        const tUnits=tgts.reduce((s,t)=>s+(Number(t.units_per_day)||0)*workdays,0);
+        const tRev=tgts.reduce((s,t)=>s+(Number(t.revenue_target)||0),0);
+        const saleItems=filteredItems.filter(i=>i.type==="sale");
+        const aDoors=filteredVisits.length;
+        const aUnits=saleItems.reduce((s,i)=>s+(Number(i.qty)||0),0);
+        const aRev=saleItems.reduce((s,i)=>{const p=products.find(pr=>pr.id===i.product_id);return s+(Number(i.qty)||0)*(p?Number(p.unit_price)||0:0);},0);
+        doorP={actual:aDoors,target:tDoors};
+        unitP={actual:aUnits,target:tUnits};
+        revP={actual:aRev,target:tRev};
+      } else {
+        doorP={actual:filteredVisits.length,target:0};
+      }
+    }
+    const getPct=(p)=>p&&p.target>0?Math.round(p.actual/p.target*100):null;
+    const allPcts=[getPct(doorP),getPct(unitP),getPct(revP)].filter(p=>p!==null&&p!==undefined);
+    const overallPct=allPcts.length>0?Math.round(allPcts.reduce((s,p)=>s+p,0)/allPcts.length):null;
+    const statusLabel=overallPct===null?"No Target":overallPct>=90?"ON TRACK":overallPct>=70?"NEEDS ATTENTION":"BEHIND";
+    const statusColor=overallPct===null?"var(--txd)":overallPct>=90?"var(--gr)":overallPct>=70?"var(--or)":"var(--rd)";
+    const dl=selCamp?daysLeft(selCamp.end_date):null;
+
+    // ── Progress bar component ─────────────────────────────────────────
+    const PBar=({label,actual,target,fmtFn})=>{
+      const pct=target>0?Math.round(actual/target*100):null;
+      const clamped=pct!==null?Math.min(pct,100):0;
+      const c=pct===null?"var(--txd)":pct>=90?"var(--gr)":pct>=70?"var(--or)":"var(--rd)";
+      const f=fmtFn||((v)=>v.toLocaleString());
+      return(
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}}>
+            <div style={{fontSize:11,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+            <div style={{fontSize:12,fontWeight:700,color:c}}>{pct!==null?`${Math.min(pct,999)}%`:"No target set"}</div>
+          </div>
+          <div style={{height:7,background:"var(--d4)",borderRadius:4,overflow:"hidden",marginBottom:4}}>
+            {pct!==null&&<div style={{height:"100%",width:`${clamped}%`,background:c,borderRadius:4,transition:"width .4s"}}/>}
+          </div>
+          <div style={{fontSize:10,color:"var(--txd)"}}>{f(actual)} of {target>0?f(target):"—"}</div>
+        </div>
+      );
+    };
+
+    // ── BA Performance ─────────────────────────────────────────────────
+    const uniqueBaIds=[...new Set(filteredVisits.map(v=>v.ba_id))];
+    const baRows=uniqueBaIds.map(baId=>{
+      const bvs=filteredVisits.filter(v=>v.ba_id===baId);
+      const bvIds=new Set(bvs.map(v=>v.id));
+      const bits=filteredItems.filter(i=>bvIds.has(i.visit_id));
+      const doors=bvs.length;
+      const items=bits.reduce((s,i)=>s+(Number(i.qty)||1),0);
+      const sales=bits.filter(i=>i.type==="sale").reduce((s,i)=>{const p=products.find(pr=>pr.id===i.product_id);return s+(Number(i.qty)||0)*(p?Number(p.unit_price)||0:0);},0);
+      let achPct=null;
+      if(selCamp){const ach=calcAchievement(selCamp,baId,allVisits,allItems,campTargets,products);if(ach&&ach.doors.pct!==null)achPct=Math.round(ach.doors.pct);}
+      return{baId,name:baName(baId),doors,items,sales,achPct};
+    }).sort((a,b)=>b.doors-a.doors);
+
+    // ── SKU chart data ─────────────────────────────────────────────────
+    const trunc=(s,n)=>s&&s.length>n?s.slice(0,n)+"…":s||"Unknown";
+    const skuAgg={};
+    filteredItems.filter(i=>i.type!=="return").forEach(i=>{
+      const p=products.find(pr=>pr.id===i.product_id);
+      if(!p)return;
+      const k=trunc(p.name||p.sku,14);
+      if(!skuAgg[k])skuAgg[k]={name:k,Sale:0,Gift:0,Sample:0,total:0};
+      const t=i.type==="sale"?"Sale":i.type==="gift"?"Gift":"Sample";
+      skuAgg[k][t]=(skuAgg[k][t]||0)+(Number(i.qty)||1);
+      skuAgg[k].total+=(Number(i.qty)||1);
+    });
+    const skuBarData=Object.values(skuAgg).sort((a,b)=>b.total-a.total).slice(0,10).reverse();
+
+    // ── Visit helpers ──────────────────────────────────────────────────
+    const visitTypes=(vid)=>[...new Set(filteredItems.filter(i=>i.visit_id===vid).map(i=>i.type))].filter(Boolean);
+    const visitQty=(vid)=>filteredItems.filter(i=>i.visit_id===vid).reduce((s,i)=>s+(Number(i.qty)||1),0);
+    const typeBadge={sale:{c:"#C9A84C",l:"Sale"},gift:{c:"#3A9BD5",l:"Gift"},sample:{c:"#2ECC71",l:"Sample"},return:{c:"#E74C3C",l:"Return"}};
+
+    // ── Export ─────────────────────────────────────────────────────────
+    const doExport=()=>{
+      const nl=String.fromCharCode(10);
+      const h="Date,Time,Customer,Items,Types,SOP,Field Rep"+nl;
+      const r=filteredVisits.map(v=>{
+        const dt=new Date(v.visit_time);
+        const types=visitTypes(v.id).join("|");
+        const sop=v.sop_checklist&&Object.keys(v.sop_checklist||{}).length>0?"Yes":"No";
+        return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",visitQty(v.id),types,sop,baName(v.ba_id)].join(",");
+      }).join(nl);
+      const blob=new Blob([h+r],{type:"text/csv"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=`dtd_${selCampId==="all"?"all":(selCamp?.name||selCampId).replace(/\s+/g,"_")}.csv`;a.click();
+    };
+
     return(
       <div>
-        <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,var(--g),var(--bl))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🚪</div>
+        {/* HEADER */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:16}}>
           <div>
-            <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>{user.name}</div>
-            <div style={{fontSize:12,color:"var(--txd)"}}>DTD Door Visits · Client Portal</div>
+            <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",lineHeight:1}}>DTD Performance</div>
+            <div style={{fontSize:11,color:"var(--txd)",marginTop:3,letterSpacing:.5}}>{user.name} · Client Portal</div>
           </div>
+          {!loading&&filteredVisits.length>0&&<button className="bs" style={{fontSize:12,padding:"7px 14px"}} onClick={doExport}><I n="pdf" s={13}/>Export CSV</button>}
         </div>
-        {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading visits…</div></div>}
-        {!loading&&<div className="card">
-          <div className="ch">
-            <I n="map" s={17} c="var(--g)"/>
-            <div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{displayVisits.length} visits{allVisits.length>50?" (showing last 50)":""}</div></div>
-            {displayVisits.length>0&&<button className="bs" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>{const nl=String.fromCharCode(10);const h="Date,Time,Customer,Items,Field Rep"+nl;const r=displayVisits.map(v=>{const dt=new Date(v.visit_time);return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",visitItemCount(v.id),baName(v.ba_id)].join(",");}).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="visits.csv";a.click();}}><I n="pdf" s={13}/>Export</button>}
-          </div>
-          <div className="cb">
-            {displayVisits.length===0
-              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:36,marginBottom:8}}>📭</div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>{campaigns.length===0?"No active campaigns yet":"No door visits recorded yet"}</div></div>
-              :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr>
-                    <th style={thS}>Date</th><th style={thS}>Time</th><th style={thS}>Customer</th>
-                    <th style={{...thS,textAlign:"center"}}>Items</th><th style={thS}>Field Rep</th>
-                  </tr></thead>
-                  <tbody>{displayVisits.map(v=>{
-                    const dt=new Date(v.visit_time);
-                    return(<tr key={v.id}>
-                      <td style={tdS}>{dt.toLocaleDateString("en-GB")}</td>
-                      <td style={tdS}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
-                      <td style={tdS}>{v.customer_name||"—"}</td>
-                      <td style={{...tdS,textAlign:"center"}}>{visitItemCount(v.id)}</td>
-                      <td style={tdS}>{baName(v.ba_id)}</td>
-                    </tr>);
-                  })}</tbody>
-                </table>
+
+        {/* CAMPAIGN SELECTOR */}
+        <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+          <label style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Campaign</label>
+          {loading
+            ?<div style={{height:38,background:"var(--d3)",borderRadius:8}}/>
+            :<select className="fsel" value={selCampId} onChange={e=>setSelCampId(e.target.value)} style={{marginBottom:0}}>
+              <option value="all">All Campaigns ({allVisits.length} total visits)</option>
+              {campaigns.map(c=><option key={c.id} value={c.id}>{c.name} · {c.start_date||"?"} → {c.end_date||"ongoing"}</option>)}
+            </select>
+          }
+        </div>
+
+        {/* CAMPAIGN PROGRESS CARD */}
+        {!loading&&selCampId!=="all"&&selCamp&&(
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:14}}>
+              <div>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--tx)"}}>{selCamp.name}</div>
+                <div style={{fontSize:11,color:"var(--txd)",marginTop:2}}>
+                  {selCamp.start_date} → {selCamp.end_date||"ongoing"}
+                  {dl!==null&&<span style={{marginLeft:8,fontWeight:600,color:dl>7?"var(--gr)":dl>0?"var(--or)":"var(--rd)"}}>{dl>0?`· ${dl}d remaining`:"· Ended"}</span>}
+                </div>
               </div>
+              <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,color:statusColor,border:"1px solid "+statusColor,background:statusColor+"22",flexShrink:0,whiteSpace:"nowrap"}}>{statusLabel}</span>
+            </div>
+            {doorP&&<PBar label="Doors" actual={doorP.actual} target={doorP.target}/>}
+            {unitP&&<PBar label="Units Sold" actual={unitP.actual} target={unitP.target}/>}
+            {revP&&<PBar label="Revenue PKR" actual={revP.actual} target={revP.target} fmtFn={v=>`₨${Math.round(v).toLocaleString()}`}/>}
+            {!doorP&&<div style={{fontSize:12,color:"var(--txd)"}}>No targets set for this campaign.</div>}
+          </div>
+        )}
+
+        {/* BA PERFORMANCE TABLE */}
+        <div className="card" style={{marginBottom:16}}>
+          <div className="ch"><I n="chart" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">BA Performance</div><div className="cs">{loading?"Loading…":`${baRows.length} field rep${baRows.length!==1?"s":""}`}</div></div></div>
+          <div className="cb">
+            {loading
+              ?<div style={{padding:"32px",textAlign:"center",color:"var(--txd)"}}>Loading…</div>
+              :baRows.length===0
+                ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:32,marginBottom:8}}>👥</div><div style={{fontFamily:"Rajdhani",fontSize:16,fontWeight:600}}>No field rep data yet</div></div>
+                :<div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:480}}>
+                    <thead><tr>
+                      <th style={thS}>Field Rep</th>
+                      <th style={{...thS,textAlign:"right"}}>Doors</th>
+                      <th style={{...thS,textAlign:"right"}}>Items</th>
+                      <th style={{...thS,textAlign:"right"}}>Sales PKR</th>
+                      {selCampId!=="all"&&<th style={{...thS,textAlign:"center"}}>Achievement</th>}
+                    </tr></thead>
+                    <tbody>{baRows.map(row=>{
+                      const ac=row.achPct;
+                      const cc=ac===null?"var(--txd)":ac>=90?"var(--gr)":ac>=70?"var(--or)":"var(--rd)";
+                      return(<tr key={row.baId}>
+                        <td style={tdS}><span style={{fontWeight:600,color:"var(--tx)"}}>{row.name}</span></td>
+                        <td style={{...tdS,textAlign:"right"}}>{row.doors.toLocaleString()}</td>
+                        <td style={{...tdS,textAlign:"right"}}>{row.items.toLocaleString()}</td>
+                        <td style={{...tdS,textAlign:"right"}}>{fmtPKR(row.sales)}</td>
+                        {selCampId!=="all"&&<td style={{...tdS,textAlign:"center"}}>
+                          {ac!==null?<span style={{fontWeight:700,color:cc}}>{ac<70&&"⚠ "}{ac}%</span>:<span style={{color:"var(--txd)"}}>—</span>}
+                        </td>}
+                      </tr>);
+                    })}</tbody>
+                  </table>
+                </div>
             }
           </div>
-        </div>}
+        </div>
+
+        {/* SKU PERFORMANCE CHART */}
+        <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:14,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontFamily:"Rajdhani",fontSize:13,fontWeight:700,color:"var(--g)",marginBottom:12,letterSpacing:1,textTransform:"uppercase"}}>SKU Performance · Top 10 by Volume</div>
+          {loading
+            ?<div style={{height:200,background:"var(--d3)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--txd)"}}>Loading…</div>
+            :skuBarData.length===0
+              ?<div style={{height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"var(--txd)",gap:6}}><div style={{fontSize:28}}>📦</div><div style={{fontSize:12}}>No product data yet</div></div>
+              :<>
+                <div style={{display:"flex",gap:12,marginBottom:10,flexWrap:"wrap"}}>
+                  {[{l:"Sale",c:"#C9A84C"},{l:"Gift",c:"#3A9BD5"},{l:"Sample",c:"#2ECC71"}].map(({l,c})=>(
+                    <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"var(--txd)"}}>
+                      <div style={{width:10,height:10,borderRadius:2,background:c}}/>
+                      {l}
+                    </div>
+                  ))}
+                </div>
+                <ResponsiveContainer width="100%" height={Math.max(180,skuBarData.length*34+50)}>
+                  <BarChart layout="vertical" data={skuBarData} margin={{top:0,right:24,left:10,bottom:0}}>
+                    <XAxis type="number" tick={{fill:"#6E6A60",fontSize:9}} tickLine={false} axisLine={false} allowDecimals={false}/>
+                    <YAxis type="category" dataKey="name" tick={{fill:"#DDD8CC",fontSize:10}} tickLine={false} width={95} interval={0}/>
+                    <Tooltip contentStyle={chartTooltipStyle} cursor={{fill:"rgba(201,168,76,0.06)"}}/>
+                    <Bar dataKey="Sale" stackId="a" fill="#C9A84C" name="Sale" maxBarSize={18}/>
+                    <Bar dataKey="Gift" stackId="a" fill="#3A9BD5" name="Gift" maxBarSize={18}/>
+                    <Bar dataKey="Sample" stackId="a" fill="#2ECC71" name="Sample" maxBarSize={18} radius={[0,4,4,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
+          }
+        </div>
+
+        {/* RECENT VISITS TABLE */}
+        <div className="card">
+          <div className="ch">
+            <I n="map" s={17} c="var(--g)"/>
+            <div style={{flex:1}}><div className="ct">Recent Visits</div><div className="cs">{loading?"…":`${displayVisits.length}${filteredVisits.length>50?" of "+filteredVisits.length:""} visits${filteredVisits.length>50?" · showing latest 50":""}`}</div></div>
+          </div>
+          <div className="cb">
+            {loading
+              ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>Loading visits…</div>
+              :displayVisits.length===0
+                ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}><div style={{fontSize:36,marginBottom:8}}>📭</div><div style={{fontFamily:"Rajdhani",fontSize:17,fontWeight:600}}>{campaigns.length===0?"No active campaigns yet":"No visits for this selection"}</div></div>
+                :<div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+                    <thead><tr>
+                      <th style={thS}>Date</th>
+                      <th style={thS}>Time</th>
+                      <th style={thS}>Customer</th>
+                      <th style={{...thS,textAlign:"center"}}>Items</th>
+                      <th style={thS}>Types</th>
+                      <th style={{...thS,textAlign:"center"}}>SOP</th>
+                      <th style={thS}>Rep</th>
+                    </tr></thead>
+                    <tbody>{displayVisits.map(v=>{
+                      const dt=new Date(v.visit_time);
+                      const types=visitTypes(v.id);
+                      const sopDone=v.sop_checklist&&typeof v.sop_checklist==="object"&&Object.keys(v.sop_checklist).length>0;
+                      return(<tr key={v.id}>
+                        <td style={tdS}>{dt.toLocaleDateString("en-GB")}</td>
+                        <td style={tdS}>{dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td>
+                        <td style={tdS}>{v.customer_name||"—"}</td>
+                        <td style={{...tdS,textAlign:"center",fontWeight:600,color:"var(--g)"}}>{visitQty(v.id)||"—"}</td>
+                        <td style={tdS}>
+                          <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                            {types.length===0&&<span style={{color:"var(--txd)",fontSize:11}}>—</span>}
+                            {types.map(t=>{const b=typeBadge[t]||{c:"#6E6A60",l:t};return(<span key={t} style={{fontSize:9,padding:"2px 5px",borderRadius:10,fontWeight:700,color:b.c,border:"1px solid "+b.c,background:b.c+"22",whiteSpace:"nowrap"}}>{b.l}</span>);})}
+                          </div>
+                        </td>
+                        <td style={{...tdS,textAlign:"center"}}>{sopDone?"✅":"—"}</td>
+                        <td style={tdS}>{baName(v.ba_id)}</td>
+                      </tr>);
+                    })}</tbody>
+                  </table>
+                </div>
+            }
+          </div>
+        </div>
       </div>
     );
   }
