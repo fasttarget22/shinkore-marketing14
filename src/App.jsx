@@ -6113,6 +6113,9 @@ function DTDDashPage({user,toast}){
   const removeLine=(idx)=>setForm(f=>({...f,lines:f.lines.filter((_,i)=>i!==idx)}));
 
   const doSaveVisit=async()=>{
+    if(activeCampaign.end_date&&today>activeCampaign.end_date){toast(`This campaign ended on ${activeCampaign.end_date}. No more visits can be recorded.`);return;}
+    if(activeCampaign.start_date&&today<activeCampaign.start_date){toast(`This campaign starts on ${activeCampaign.start_date}. Visits cannot be recorded yet.`);return;}
+    if(["closed","ended","completed"].includes(activeCampaign.status)){toast("This campaign is closed.");return;}
     if(clientSettings.gps_required&&!form.gps){toast("GPS required for this client — capture location first.");return;}
     if(!form.customer_name.trim()){toast("Customer name required.");return;}
     if(!form.customer_phone.trim()){toast("Customer phone required.");return;}
