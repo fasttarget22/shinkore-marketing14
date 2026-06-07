@@ -241,6 +241,10 @@ const I = ({n,s=18,c="currentColor"}) => {
     flag:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
     chart:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>,
     briefcase:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="2" y1="13" x2="22" y2="13"/></svg>,
+    home:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>,
+    work:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>,
+    folder:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
+    book:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
   };
   return m[n]||null;
 };
@@ -423,6 +427,68 @@ function Sidebar({user,data,page,setPage,open,onClose}){
         </div>
       </aside>
     </>
+  );
+}
+
+// ─── BA BOTTOM NAV + SUB-TAB BAR ──────────────────────────────────────────────
+const BA_MASTER_OF=(p)=>{
+  if(["clock-in","dtd-dash"].includes(p)) return "work";
+  if(["attend","my-salary","my-activity","documents"].includes(p)) return "records";
+  if(p==="training") return "training";
+  return "home";
+};
+
+function BABottomNav({page,setPage}){
+  const master=BA_MASTER_OF(page);
+  const tabs=[
+    {id:"home",    icon:"home",   label:"Home",       first:"my-dash"},
+    {id:"work",    icon:"work",   label:"My Work",    first:"clock-in"},
+    {id:"records", icon:"folder", label:"My Records", first:"attend"},
+    {id:"training",icon:"book",   label:"Training",   first:"training"},
+  ];
+  return(
+    <nav style={{position:"fixed",bottom:0,left:0,right:0,height:58,background:"var(--d2)",borderTop:"1px solid var(--bo)",display:"flex",zIndex:200}}>
+      {tabs.map(t=>{
+        const active=master===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.first)} style={{flex:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",color:active?"var(--g)":"var(--txd)",padding:"6px 0",minHeight:44}}>
+            {active&&<div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:36,height:2,background:"var(--g)",borderRadius:"0 0 2px 2px"}}/>}
+            <I n={t.icon} s={20} c={active?"var(--g)":"var(--txd)"}/>
+            <span style={{fontSize:10,fontWeight:active?700:400,letterSpacing:.3,lineHeight:1}}>{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function BASubTabBar({page,setPage}){
+  const subTabs={
+    work:[
+      {id:"clock-in",   label:"Stall Work"},
+      {id:"dtd-dash",   label:"DTD Work"},
+    ],
+    records:[
+      {id:"attend",      label:"Attendance"},
+      {id:"my-salary",   label:"My Salary"},
+      {id:"my-activity", label:"Activity Reports"},
+      {id:"documents",   label:"Documents"},
+    ],
+  };
+  const master=BA_MASTER_OF(page);
+  const tabs=subTabs[master];
+  if(!tabs) return null;
+  return(
+    <div style={{display:"flex",gap:6,padding:"8px 12px",borderBottom:"1px solid var(--bo)",overflowX:"auto",scrollbarWidth:"none",background:"var(--d2)",flexShrink:0,position:"sticky",top:0,zIndex:50}}>
+      {tabs.map(t=>{
+        const active=page===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.id)} style={{flexShrink:0,padding:"5px 14px",borderRadius:20,border:`1px solid ${active?"var(--g)":"var(--bo)"}`,background:active?"rgba(201,168,76,.15)":"transparent",color:active?"var(--g)":"var(--txd)",fontSize:12,fontWeight:active?600:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -6549,8 +6615,10 @@ export default function App(){
             {syncState==="synced"&&<span title="All changes synced to cloud" style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(46,204,113,.12)",border:"1px solid rgba(46,204,113,.25)",color:"var(--g)",marginRight:8}}>✅ Synced</span>}
             <button className="bic" onClick={logout} title="Logout"><I n="out" s={15}/></button>
           </div>
-          <div className="content">{render()}</div>
+          {user.role==="ba"&&<BASubTabBar page={page} setPage={setPage}/>}
+          <div className="content" style={user.role==="ba"?{paddingBottom:70}:{}}>{render()}</div>
         </main>
+        {user.role==="ba"&&<BABottomNav page={page} setPage={setPage}/>}
       </div>
       {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>}
     </>
