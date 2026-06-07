@@ -246,6 +246,8 @@ const I = ({n,s=18,c="currentColor"}) => {
     work:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>,
     folder:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
     book:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
+    down:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><polyline points="6,9 12,15 18,9"/></svg>,
+    up:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><polyline points="18,15 12,9 6,15"/></svg>,
   };
   return m[n]||null;
 };
@@ -350,6 +352,7 @@ function Sidebar({user,data,page,setPage,open,onClose}){
     {id:"staff",icon:"users",label:"Staff & Teams"},
     {id:"stalls",icon:"pin",label:"Permission Stalls"},
     {id:"alloc",icon:"alloc",label:"Allocations"},
+    {id:"daily_reports",icon:"chart",label:"Daily Sale Reports"},
     {id:"attend",icon:"clock",label:"Attendance"},
     {id:"cash",icon:"money",label:"Cash & Finance"},
     {id:"salary",icon:"cal",label:"Salary & Slips"},
@@ -605,7 +608,7 @@ function ClientSubTabBar({page,setPage}){
 // ─── ADMIN TOP TAB BAR + SUB-TAB BAR ─────────────────────────────────────────
 const ADMIN_MASTER_OF=(p)=>{
   if(["staff","attend","salary","alerts","careers"].includes(p)) return "hr";
-  if(["stalls","alloc"].includes(p)) return "fieldops";
+  if(["stalls","alloc","daily_reports"].includes(p)) return "fieldops";
   if(["products","campaigns","dtd-admin","sops"].includes(p)) return "dtd";
   if(["cash","daily_plan"].includes(p)) return "finance";
   if(["clients","control-panel"].includes(p)) return "clients";
@@ -647,8 +650,9 @@ function AdminSubTabBar({page,setPage}){
       {id:"careers",    label:"Careers"},
     ],
     fieldops:[
-      {id:"stalls",     label:"Stalls"},
-      {id:"alloc",      label:"Allocations"},
+      {id:"stalls",         label:"Stalls"},
+      {id:"alloc",          label:"Allocations"},
+      {id:"daily_reports",  label:"Daily Sale Reports"},
     ],
     dtd:[
       {id:"products",   label:"Products"},
@@ -1707,6 +1711,16 @@ function ClockPage({user,data,setData,toast}){
 
   const myAllocs=data.allocations.filter(a=>a.user_id===user.id&&a.active);
   const todayAtt=(data.attendance||[]).filter(a=>a.user_id===user.id&&a.date===today);
+  const [reportFor,setReportFor]=useState(null);
+  const [rProducts,setRProducts]=useState([]);
+  const [rLoadingProds,setRLoadingProds]=useState(false);
+  const [rInter,setRInter]=useState("");
+  const [rEcc,setREcc]=useState("");
+  const [rCc,setRCc]=useState("");
+  const [rUnitSales,setRUnitSales]=useState({});
+  const [rSaleAmt,setRSaleAmt]=useState("");
+  const [rNotes,setRNotes]=useState("");
+  const [rSubmitting,setRSubmitting]=useState(false);
 
   const getGPS=()=>{
     setGpsErr(""); setLoading(true);
@@ -1742,21 +1756,59 @@ function ClockPage({user,data,setData,toast}){
     ADMIN_PHONES.forEach(ph=>sendWA(ph,confMsg));
   };
 
+  const performClockOut=(att,timeOut)=>{
+    const d={...data,attendance:(data.attendance||[]).map(a=>a.id===att.id?{...a,clock_out:timeOut}:a)};
+    setData(d);save(d);
+  };
+
   const doClockOut=(att)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
     const alloc=(data.allocations||[]).find(a=>a.user_id===att.user_id&&a.stall_id===att.stall_id);
     if(alloc&&alloc.duty_end){
       const [eh,em]=alloc.duty_end.split(":").map(Number);
       const [nh,nm]=now.split(":").map(Number);
-      const endMins=eh*60+em;
-      const nowMins=nh*60+nm;
-      if(nowMins<endMins){
-        toast(`Cannot clock out before duty end time (${alloc.duty_end})`);
-        return;
-      }
+      if(nh*60+nm<eh*60+em){toast(`Cannot clock out before duty end time (${alloc.duty_end})`);return;}
     }
-    const d={...data,attendance:(data.attendance||[]).map(a=>a.id===att.id?{...a,clock_out:now}:a)};
-    setData(d);save(d);toast(`Clocked out — ${now}`);
+    const stall=(data.stalls||[]).find(s=>s.id===att.stall_id);
+    const sup=(data.users||[]).find(u=>u.role==="supervisor"&&(user.sup_id?u.id===user.sup_id:(user.team&&u.team===user.team)));
+    setRInter("");setREcc("");setRCc("");setRUnitSales({});setRSaleAmt("");setRNotes("");
+    setReportFor({att,stall,timeOut:now,supervisor:sup});
+    if(stall?.client){
+      const client=(data.clients||[]).find(c=>(c.name||"").toLowerCase()===(stall.client||"").toLowerCase()||(c.brand||"").toLowerCase()===(stall.client||"").toLowerCase());
+      if(client){setRLoadingProds(true);SB.from("sm_products").select("*").eq("client_id",client.id).then(({data:rows})=>{setRProducts(rows||[]);setRLoadingProds(false);});}
+      else{setRProducts([]);}
+    }else{setRProducts([]);}
+  };
+
+  const skipReport=()=>{
+    const{att,timeOut}=reportFor;
+    performClockOut(att,timeOut);
+    setReportFor(null);
+    toast("Clocked out. Report not submitted. Submit later from Activity tab.");
+  };
+
+  const submitReport=async()=>{
+    if(rInter===""||rInter===null)return toast("Enter Interceptions count.");
+    if(rEcc===""||rEcc===null)return toast("Enter ECC count.");
+    if(rCc===""||rCc===null)return toast("Enter CC count.");
+    if(!rSaleAmt||Number(rSaleAmt)<=0)return toast("Enter Sale Amount greater than 0.");
+    const{att,stall,timeOut,supervisor}=reportFor;
+    const reportDate=new Date().toISOString().slice(0,10);
+    const ddmmyyyy=reportDate.split("-").reverse().join("/");
+    const client=stall?.client?(data.clients||[]).find(c=>(c.name||"").toLowerCase()===(stall.client||"").toLowerCase()||(c.brand||"").toLowerCase()===(stall.client||"").toLowerCase()):null;
+    const unitSalesArr=rProducts.map(p=>({product_id:p.id,name:p.name,sku:p.sku,qty:Number(rUnitSales[p.id])||0})).filter(x=>x.qty>0);
+    const totalUnits=unitSalesArr.reduce((s,x)=>s+x.qty,0);
+    const row={id:crypto.randomUUID(),ba_id:user.id,supervisor_id:supervisor?.id||null,stall_id:stall?.id||null,client_id:client?.id||null,report_date:reportDate,area:stall?.city||"",store_name:stall?.name||"",interceptions:Number(rInter)||0,ecc:Number(rEcc)||0,cc:Number(rCc)||0,unit_sales:unitSalesArr,total_units:totalUnits,sale_amount:Number(rSaleAmt)||0,time_in:att.clock_in,time_out:timeOut,notes:rNotes,created_at:new Date().toISOString()};
+    setRSubmitting(true);
+    const{error}=await SB.from("sm_daily_reports").insert([row]);
+    setRSubmitting(false);
+    if(error){toast("Failed to save report: "+error.message);return;}
+    performClockOut(att,timeOut);
+    const skuLines=unitSalesArr.map(x=>`${x.sku}: ${x.qty}`).join("\n")||"—";
+    const waMsg=`*Daily Sale Report*\n📅 Date: ${ddmmyyyy}\n👤 BA: ${user.name}\n📍 Area: ${stall?.city||"—"}\n🏪 Store: ${stall?.name||"—"}\n👔 Supervisor: ${supervisor?.name||"—"}\n\n*Interception:* ${rInter}\n*ECC:* ${rEcc}\n*CC:* ${rCc}\n\n*Unit Sales:*\n${skuLines}\n\n*Total Units:* ${totalUnits}\n*Sale Amount:* PKR ${rSaleAmt}\n\n⏰ Time In: ${att.clock_in}\n⏰ Time Out: ${timeOut}\n\n— Shinkore Marketing`;
+    sendWA(ADMIN_PHONES[0],waMsg);
+    setReportFor(null);
+    toast("Report submitted! Clocked out.");
   };
 
   return(
@@ -1814,6 +1866,181 @@ function ClockPage({user,data,setData,toast}){
                 <div className="info info-ok"><I n="ok" s={14}/>Duty complete · In: {att.clock_in} → Out: {att.clock_out}</div>
               )}
             </div>
+          </div>
+        );
+      })}
+      {reportFor&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:999,overflowY:"auto",padding:16}}>
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:16,padding:20,maxWidth:480,margin:"0 auto"}}>
+            <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",marginBottom:16}}>📋 Daily Sale Report</div>
+            <div style={{background:"var(--d3)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+              <div style={{fontSize:10,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-filled Details</div>
+              {[["Date",new Date().toLocaleDateString("en-GB")],["BA Name",user.name],["Area / City",reportFor.stall?.city||"—"],["Store",reportFor.stall?.name||"—"],["Supervisor",reportFor.supervisor?.name||"—"],["Time In",reportFor.att.clock_in],["Time Out",reportFor.timeOut]].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+                  <span style={{fontSize:12,color:"var(--txd)"}}>{l}</span>
+                  <span style={{fontSize:12,fontWeight:600}}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              {[["Interceptions",rInter,setRInter],["ECC",rEcc,setREcc],["CC",rCc,setRCc]].map(([l,v,sv])=>(
+                <div key={l}>
+                  <label style={{fontSize:10,color:"var(--txd)",display:"block",marginBottom:4}}>{l}</label>
+                  <input type="number" min="0" value={v} onChange={e=>sv(e.target.value)} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 6px",color:"var(--tx)",fontSize:15,fontWeight:700,textAlign:"center",boxSizing:"border-box"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:"var(--g)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Unit Sales by SKU</div>
+              {rLoadingProds
+                ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",padding:"8px 0"}}>Loading products…</div>
+                :rProducts.length===0
+                  ?<div style={{fontSize:12,color:"var(--txd)",background:"var(--d3)",borderRadius:8,padding:"10px 12px",fontStyle:"italic"}}>No products configured for this client.</div>
+                  :rProducts.map(p=>(
+                    <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{p.name}</div><div style={{fontSize:10,color:"var(--txd)"}}>{p.sku}</div></div>
+                      <input type="number" min="0" value={rUnitSales[p.id]||""} onChange={e=>setRUnitSales(s=>({...s,[p.id]:e.target.value}))} placeholder="0" style={{width:72,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"7px 8px",color:"var(--tx)",fontSize:15,textAlign:"right",boxSizing:"border-box"}}/>
+                    </div>
+                  ))
+              }
+              {rProducts.length>0&&(
+                <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderTop:"1px solid var(--bo)",marginTop:4}}>
+                  <span style={{fontSize:12,fontWeight:700}}>Total Units</span>
+                  <span style={{fontSize:16,fontWeight:700,color:"var(--g)",fontFamily:"Rajdhani"}}>{rProducts.reduce((s,p)=>s+(Number(rUnitSales[p.id])||0),0)}</span>
+                </div>
+              )}
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Sale Amount (PKR)</label>
+              <input type="number" min="0" value={rSaleAmt} onChange={e=>setRSaleAmt(e.target.value)} placeholder="0" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:17,fontWeight:700,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:11,color:"var(--txd)",display:"block",marginBottom:4}}>Notes (optional)</label>
+              <textarea value={rNotes} onChange={e=>setRNotes(e.target.value)} rows={2} placeholder="Any remarks…" style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"10px 12px",color:"var(--tx)",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={skipReport} style={{flex:1,padding:"12px",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:10,color:"var(--txd)",fontSize:13,cursor:"pointer",fontWeight:600}}>Skip &amp; Clock Out</button>
+              <button onClick={submitReport} disabled={rSubmitting} style={{flex:2,padding:"12px",background:"rgba(201,168,76,.18)",border:"1px solid var(--g)",borderRadius:10,color:"var(--g)",fontSize:14,cursor:rSubmitting?"not-allowed":"pointer",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                {rSubmitting?"Submitting…":"Submit Report & Clock Out"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DAILY SALE REPORTS (ADMIN) ───────────────────────────────────────────────
+function DailySaleReportsPage({data,toast}){
+  const [reports,setReports]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [filterBA,setFilterBA]=useState("all");
+  const [filterDate,setFilterDate]=useState("");
+  const [filterClient,setFilterClient]=useState("all");
+  const [expandedId,setExpandedId]=useState(null);
+
+  useEffect(()=>{
+    SB.from("sm_daily_reports").select("*").order("report_date",{ascending:false}).order("created_at",{ascending:false}).then(({data:rows})=>{setReports(rows||[]);setLoading(false);});
+  },[]);
+
+  const bas=(data.users||[]).filter(u=>u.role==="ba");
+  const clientIds=[...new Set(reports.map(r=>r.client_id).filter(Boolean))];
+  const baNameFn=(id)=>{const u=(data.users||[]).find(u=>u.id===id);return u?u.name:"Unknown";};
+  const supNameFn=(id)=>{const u=(data.users||[]).find(u=>u.id===id);return u?u.name:"—";};
+  const clientNameFn=(id)=>{const c=(data.clients||[]).find(c=>c.id===id);return c?(c.brand||c.name):id||"—";};
+
+  const filtered=reports.filter(r=>{
+    if(filterBA!=="all"&&r.ba_id!==filterBA)return false;
+    if(filterDate&&r.report_date!==filterDate)return false;
+    if(filterClient!=="all"&&r.client_id!==filterClient)return false;
+    return true;
+  });
+
+  const buildWAMsg=(r)=>{
+    const d=(r.report_date||"").split("-").reverse().join("/")||"—";
+    const skus=(r.unit_sales||[]).map(x=>`${x.sku||x.name}: ${x.qty}`).join("\n")||"—";
+    return `*Daily Sale Report*\n📅 Date: ${d}\n👤 BA: ${baNameFn(r.ba_id)}\n📍 Area: ${r.area||"—"}\n🏪 Store: ${r.store_name||"—"}\n👔 Supervisor: ${supNameFn(r.supervisor_id)}\n\n*Interception:* ${r.interceptions||0}\n*ECC:* ${r.ecc||0}\n*CC:* ${r.cc||0}\n\n*Unit Sales:*\n${skus}\n\n*Total Units:* ${r.total_units||0}\n*Sale Amount:* PKR ${r.sale_amount||0}\n\n⏰ Time In: ${r.time_in||"—"}\n⏰ Time Out: ${r.time_out||"—"}\n\n— Shinkore Marketing`;
+  };
+
+  const totalSale=filtered.reduce((s,r)=>s+Number(r.sale_amount||0),0);
+  const totalUnits=filtered.reduce((s,r)=>s+Number(r.total_units||0),0);
+
+  return(
+    <div>
+      <div className="card" style={{marginBottom:14,display:"flex",gap:10,flexWrap:"wrap"}}>
+        <select value={filterBA} onChange={e=>setFilterBA(e.target.value)} style={{flex:1,minWidth:120,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 10px",color:"var(--tx)",fontSize:13}}>
+          <option value="all">All BAs</option>
+          {bas.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <input type="date" value={filterDate} onChange={e=>setFilterDate(e.target.value)} style={{flex:1,minWidth:130,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 10px",color:"var(--tx)",fontSize:13}}/>
+        <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{flex:1,minWidth:120,background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"8px 10px",color:"var(--tx)",fontSize:13}}>
+          <option value="all">All Clients</option>
+          {clientIds.map(id=><option key={id} value={id}>{clientNameFn(id)}</option>)}
+        </select>
+        {(filterBA!=="all"||filterDate||filterClient!=="all")&&<button className="bs" onClick={()=>{setFilterBA("all");setFilterDate("");setFilterClient("all");}}>Clear</button>}
+      </div>
+      {!loading&&filtered.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:12,padding:"14px 16px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Total Sale Amount</div>
+            <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)"}}>PKR {totalSale.toLocaleString()}</div>
+          </div>
+          <div style={{background:"var(--d2)",border:"1px solid var(--bo)",borderRadius:12,padding:"14px 16px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Total Units Sold</div>
+            <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)"}}>{totalUnits}</div>
+          </div>
+        </div>
+      )}
+      {loading&&<div style={{textAlign:"center",padding:40,color:"var(--txd)"}}>Loading reports…</div>}
+      {!loading&&filtered.length===0&&<div className="info info-warn">No daily sale reports found for the selected filters.</div>}
+      {filtered.map(r=>{
+        const isExp=expandedId===r.id;
+        return(
+          <div key={r.id} className="card" style={{marginBottom:10}}>
+            <div className="ch" onClick={()=>setExpandedId(isExp?null:r.id)} style={{cursor:"pointer"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14}}>{r.store_name||"—"} · {r.area||"—"}</div>
+                <div style={{fontSize:12,color:"var(--txd)",marginTop:2}}>{(r.report_date||"").split("-").reverse().join("/")} · {baNameFn(r.ba_id)}</div>
+              </div>
+              <div style={{textAlign:"right",marginRight:10}}>
+                <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)"}}>PKR {Number(r.sale_amount||0).toLocaleString()}</div>
+                <div style={{fontSize:11,color:"var(--txd)"}}>{r.total_units||0} units</div>
+              </div>
+              <I n={isExp?"up":"down"} s={15} c="var(--txd)"/>
+            </div>
+            {isExp&&(
+              <div className="cb">
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                  {[["Interceptions",r.interceptions||0],["ECC",r.ecc||0],["CC",r.cc||0]].map(([l,v])=>(
+                    <div key={l} style={{background:"var(--d3)",borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+                      <div style={{fontSize:10,color:"var(--txd)",marginBottom:2}}>{l}</div>
+                      <div style={{fontFamily:"Rajdhani",fontSize:20,fontWeight:700,color:"var(--g)"}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:"var(--txd)",marginBottom:6,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>Unit Sales:</div>
+                {(r.unit_sales||[]).length===0
+                  ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",marginBottom:8}}>No SKU data</div>
+                  :(r.unit_sales||[]).map((x,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--bo)"}}>
+                      <span style={{fontSize:12}}>{x.name} <span style={{color:"var(--txd)",fontSize:10}}>({x.sku})</span></span>
+                      <span style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>{x.qty}</span>
+                    </div>
+                  ))
+                }
+                <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4}}>
+                  <span style={{fontSize:12,color:"var(--txd)"}}>Supervisor: {supNameFn(r.supervisor_id)}</span>
+                  <span style={{fontSize:12,color:"var(--txd)"}}>{r.time_in||"—"} → {r.time_out||"—"}</span>
+                </div>
+                {r.notes&&<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",marginBottom:8}}>Notes: {r.notes}</div>}
+                <div style={{marginTop:10}}>
+                  <button onClick={()=>sendWA(ADMIN_PHONES[0],buildWAMsg(r))} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",background:"rgba(37,211,102,.1)",border:"1px solid rgba(37,211,102,.3)",borderRadius:8,color:"#25D366",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                    <I n="wa" s={13}/>Resend WA Report
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -4317,6 +4544,7 @@ function ClientPortalPage({user,data,toast,view}){
   const [rngPreset,setRngPreset]=useState("this_month");
   const [customFrom,setCustomFrom]=useState("");
   const [customTo,setCustomTo]=useState("");
+  const [dailyReports,setDailyReports]=useState([]);
 
   useEffect(()=>{loadAll();},[]);
   useEffect(()=>{
@@ -4361,6 +4589,8 @@ function ClientPortalPage({user,data,toast,view}){
         setAllItems(items);
       }
     }
+    const{data:drData}=await SB.from("sm_daily_reports").select("*").eq("client_id",user.id).order("report_date",{ascending:false});
+    setDailyReports(drData||[]);
     setLoading(false);
   };
 
@@ -5085,6 +5315,48 @@ function ClientPortalPage({user,data,toast,view}){
               <div style={{fontSize:11,color:"var(--txd)",fontWeight:400,marginTop:2}}>Opens print dialog — save as PDF from browser</div>
             </div>
           </button>
+        </div>
+
+        {/* DAILY SALE REPORTS */}
+        <div style={{...cardS,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>Daily Sale Reports</div>
+          {loading
+            ?[1,2].map(i=><div key={i} style={{height:52,background:"var(--d3)",borderRadius:8,marginBottom:8}}/>)
+            :dailyReports.length===0
+              ?<div style={{fontSize:12,color:"var(--txd)",fontStyle:"italic",padding:"10px 12px",background:"var(--d3)",borderRadius:8}}>No daily sale reports yet.</div>
+              :dailyReports.filter(r=>{
+                const rFrom=rngPreset==="this_month"?thisMonth+"-01":rngPreset==="last_month"?lastMonth+"-01":rngPreset==="last_3_months"?(()=>{const d=new Date(ty,tm-4,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01";})():customFrom||thisMonth+"-01";
+                const rTo=rngPreset==="this_month"?today:rngPreset==="last_month"?(()=>{const d=new Date(ty,tm-1,0);return d.toISOString().slice(0,10);})():rngPreset==="last_3_months"?today:customTo||today;
+                return r.report_date>=rFrom&&r.report_date<=rTo;
+              }).map((r,i,arr)=>(
+                <div key={r.id} style={{padding:"10px 0",borderBottom:i<arr.length-1?"1px solid var(--bo)":"none"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600}}>{r.store_name||"—"} · {r.area||"—"}</div>
+                      <div style={{fontSize:11,color:"var(--txd)",marginTop:2}}>{(r.report_date||"").split("-").reverse().join("/")} · {r.time_in||"—"} → {r.time_out||"—"}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontFamily:"Rajdhani",fontSize:16,fontWeight:700,color:"var(--g)"}}>PKR {Number(r.sale_amount||0).toLocaleString()}</div>
+                      <div style={{fontSize:10,color:"var(--txd)"}}>{r.total_units||0} units</div>
+                    </div>
+                  </div>
+                  {(r.unit_sales||[]).length>0&&(
+                    <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:6}}>
+                      {(r.unit_sales||[]).map((x,j)=>(
+                        <span key={j} style={{fontSize:10,padding:"2px 8px",background:"rgba(201,168,76,.12)",border:"1px solid rgba(201,168,76,.3)",borderRadius:10,color:"var(--g)"}}>
+                          {x.sku}: {x.qty}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
+                    {[["Interceptions",r.interceptions||0],["ECC",r.ecc||0],["CC",r.cc||0]].map(([l,v])=>(
+                      <span key={l} style={{fontSize:10,color:"var(--txd)"}}>{l}: <strong style={{color:"var(--tx)"}}>{v}</strong></span>
+                    ))}
+                  </div>
+                </div>
+              ))
+          }
         </div>
       </div>
     );
@@ -7548,7 +7820,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":sessionSafe.role==="client"?(sessionSafe.login_method==="access_code"?"client_portal":"client_dash"):"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",careers:"Careers",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",client_reports:"Reports & Export",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",careers:"Careers",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",client_reports:"Reports & Export",daily_plan:"Daily Plans",daily_reports:"Daily Sale Reports",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const jobParam=new URLSearchParams(window.location.search).get("job");
   if(jobParam) return <><style>{css}</style><PublicJobPage jobId={jobParam}/></>;
@@ -7564,6 +7836,7 @@ export default function App(){
         case "staff": return <StaffPage data={data} setData={setData} toast={toast}/>;
         case "stalls": return <StallsPage data={data} setData={setData} toast={toast}/>;
         case "alloc": return <AllocPage data={data} setData={setData} toast={toast}/>;
+        case "daily_reports": return <DailySaleReportsPage data={data} toast={toast}/>;
         case "attend": return <AttendancePage user={user} data={data} setData={setData} toast={toast}/>;
         case "alerts": return <AlertsPage data={data} toast={toast}/>;
         case "personal": return <PersonalPage data={data} setData={setData} toast={toast}/>;
