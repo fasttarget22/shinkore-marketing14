@@ -554,14 +554,16 @@ function SupSubTabBar({page,setPage}){
 // ─── CLIENT BOTTOM NAV + SUB-TAB BAR ─────────────────────────────────────────
 const CLIENT_MASTER_OF=(p)=>{
   if(["client_dtd","client_stalls"].includes(p)) return "mydata";
+  if(p==="client_reports") return "reports";
   return "home";
 };
 
 function ClientBottomNav({page,setPage}){
   const master=CLIENT_MASTER_OF(page);
   const tabs=[
-    {id:"home",   icon:"home",   label:"Home",    first:"client_portal"},
-    {id:"mydata", icon:"folder", label:"My Data", first:"client_dtd"},
+    {id:"home",    icon:"home",   label:"Home",    first:"client_portal"},
+    {id:"mydata",  icon:"folder", label:"My Data", first:"client_dtd"},
+    {id:"reports", icon:"pdf",    label:"Reports", first:"client_reports"},
   ];
   return(
     <nav style={{position:"fixed",bottom:0,left:0,right:0,height:58,background:"var(--d2)",borderTop:"1px solid var(--bo)",display:"flex",zIndex:200}}>
@@ -4312,6 +4314,9 @@ function ClientPortalPage({user,data,toast,view}){
   const [stallAttendance,setStallAttendance]=useState([]);
   const [expandedCals,setExpandedCals]=useState([]);
   const [calDayInfo,setCalDayInfo]=useState(null);
+  const [rngPreset,setRngPreset]=useState("this_month");
+  const [customFrom,setCustomFrom]=useState("");
+  const [customTo,setCustomTo]=useState("");
 
   useEffect(()=>{loadAll();},[]);
   useEffect(()=>{
@@ -4812,6 +4817,274 @@ function ClientPortalPage({user,data,toast,view}){
                 </div>
             }
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── REPORTS VIEW ─────────────────────────────────────────────────────
+  if(view==="reports"){
+    const lastDayOfLastMonth=(()=>{const d=new Date(ty,tm-1,0);return d.toISOString().slice(0,10);})();
+    const rFrom=rngPreset==="this_month"?thisMonth+"-01"
+      :rngPreset==="last_month"?lastMonth+"-01"
+      :rngPreset==="last_3_months"?(()=>{const d=new Date(ty,tm-4,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01";})()
+      :customFrom||thisMonth+"-01";
+    const rTo=rngPreset==="this_month"?today
+      :rngPreset==="last_month"?lastDayOfLastMonth
+      :rngPreset==="last_3_months"?today
+      :customTo||today;
+
+    const rangeVisits=allVisits.filter(v=>v.visit_time&&v.visit_time.slice(0,10)>=rFrom&&v.visit_time.slice(0,10)<=rTo);
+    const rangeVIds=new Set(rangeVisits.map(v=>v.id));
+    const rangeItems=allItems.filter(i=>rangeVIds.has(i.visit_id));
+    const rangeStalls=stalls.filter(s=>s.from_date&&s.to_date&&s.from_date<=rTo&&s.to_date>=rFrom);
+    const rangeAtt=stallAttendance.filter(a=>a.date>=rFrom&&a.date<=rTo&&rangeStalls.some(s=>s.id===a.stall_id));
+
+    const totalDoors=rangeVisits.length;
+    const iType=(t)=>rangeItems.filter(i=>i.type===t).reduce((s,i)=>s+(Number(i.qty)||1),0);
+    const rSales=iType("sale");const rGifts=iType("gift");const rSamples=iType("sample");const rReturns=iType("return");
+    const totalRangeItems=rangeItems.reduce((s,i)=>s+(Number(i.qty)||1),0);
+    const totalSalesVal=rangeItems.filter(i=>i.type==="sale").reduce((s,i)=>{const p=products.find(pr=>pr.id===i.product_id);return s+(Number(i.qty)||1)*(p?Number(p.unit_price)||0:0);},0);
+    const uniqueVisitDays=new Set(rangeVisits.map(v=>v.visit_time?.slice(0,10))).size;
+    const avgDoorsPerDay=uniqueVisitDays>0?(totalDoors/uniqueVisitDays).toFixed(1):"—";
+    const uniqueBAs=new Set(rangeVisits.map(v=>v.ba_id)).size;
+
+    const totalCheckIns=rangeAtt.length;
+    const avgAttRate=(()=>{
+      if(rangeStalls.length===0)return null;
+      const rates=rangeStalls.map(stall=>{
+        const f=stall.from_date>rFrom?stall.from_date:rFrom;
+        const t=stall.to_date<rTo?stall.to_date:rTo;
+        if(f>t)return null;
+        const days=Math.max(1,Math.round((new Date(t)-new Date(f))/86400000)+1);
+        const actualDays=[...new Set(stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=f&&a.date<=t).map(a=>a.date))].length;
+        return Math.round(actualDays/days*100);
+      }).filter(r=>r!==null);
+      if(rates.length===0)return null;
+      return Math.round(rates.reduce((a,b)=>a+b,0)/rates.length);
+    })();
+
+    const rangeBestBA=(()=>{const m={};rangeVisits.forEach(v=>{const n=baName(v.ba_id);m[n]=(m[n]||0)+1;});const e=Object.entries(m).sort((a,b)=>b[1]-a[1]);if(!e[0])return null;return{name:e[0][0],pct:Math.round(e[0][1]/(rangeVisits.length||1)*100)};})();
+    const rangeTopSku=(()=>{const m={};rangeItems.forEach(i=>{const p=products.find(pr=>pr.id===i.product_id);if(!p)return;const k=p.name||p.sku;m[k]=(m[k]||0)+(Number(i.qty)||1);});const e=Object.entries(m).sort((a,b)=>b[1]-a[1]);return e[0]||null;})();
+    const activeCampInRange=campaigns.find(c=>c.start_date&&c.start_date<=rTo&&(!c.end_date||c.end_date>=rFrom))||null;
+
+    const toCSVCell=v=>`"${String(v??""
+    ).replace(/"/g,'""')}"`;
+    const downloadCSV=(filename,header,rows)=>{
+      const csv=[header,...rows].join("\n");
+      const blob=new Blob([csv],{type:"text/csv"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
+    };
+    const doExportVisits=()=>{
+      const header=["Date","Time","Customer","Items","Types","Rep","SOP"].join(",");
+      const rows=rangeVisits.map(v=>{
+        const dt=new Date(v.visit_time);
+        const vi=rangeItems.filter(i=>i.visit_id===v.id);
+        const qty=vi.reduce((s,i)=>s+(Number(i.qty)||1),0);
+        const types=[...new Set(vi.map(i=>i.type).filter(Boolean))].join("/");
+        const sop=v.sop_checklist&&Object.keys(v.sop_checklist).length>0?"Yes":"No";
+        return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",qty,types,baName(v.ba_id),sop].map(toCSVCell).join(",");
+      });
+      downloadCSV(`visits_${rFrom}_${rTo}.csv`,header,rows);
+    };
+    const doExportStalls=()=>{
+      const header=["Name","City","From Date","To Date","Status","Check-ins","Attendance Rate"].join(",");
+      const rows=rangeStalls.map(stall=>{
+        const st=(()=>{if(!stall.from_date||!stall.to_date)return"Unknown";if(stall.from_date>today)return"Upcoming";if(stall.to_date<today)return"Ended";return"Active";})();
+        const ci=stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=rFrom&&a.date<=rTo).length;
+        const f=stall.from_date>rFrom?stall.from_date:rFrom;
+        const t=stall.to_date<rTo?stall.to_date:rTo;
+        let rate="—";
+        if(f<=t){const days=Math.max(1,Math.round((new Date(t)-new Date(f))/86400000)+1);const ad=[...new Set(stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=f&&a.date<=t).map(a=>a.date))].length;rate=Math.round(ad/days*100)+"%";}
+        return[stall.name,stall.city||"",stall.from_date||"",stall.to_date||"",st,ci,rate].map(toCSVCell).join(",");
+      });
+      downloadCSV(`stalls_${rFrom}_${rTo}.csv`,header,rows);
+    };
+    const doPrint=()=>{
+      const vRows=rangeVisits.slice(0,50).map(v=>{
+        const dt=new Date(v.visit_time);
+        const vi=rangeItems.filter(i=>i.visit_id===v.id);
+        const qty=vi.reduce((s,i)=>s+(Number(i.qty)||1),0);
+        const types=[...new Set(vi.map(i=>i.type).filter(Boolean))].join("/");
+        const sop=v.sop_checklist&&Object.keys(v.sop_checklist).length>0?"Yes":"No";
+        return`<tr><td>${dt.toLocaleDateString("en-GB")}</td><td>${dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</td><td>${v.customer_name||"—"}</td><td>${qty||"—"}</td><td>${types||"—"}</td><td>${baName(v.ba_id)}</td><td>${sop}</td></tr>`;
+      }).join("");
+      const sRows=rangeStalls.map(stall=>{
+        const st=(()=>{if(!stall.from_date||!stall.to_date)return"Unknown";if(stall.from_date>today)return"Upcoming";if(stall.to_date<today)return"Ended";return"Active";})();
+        const ci=stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=rFrom&&a.date<=rTo).length;
+        const f=stall.from_date>rFrom?stall.from_date:rFrom;
+        const t=stall.to_date<rTo?stall.to_date:rTo;
+        let rate="—";
+        if(f<=t){const days=Math.max(1,Math.round((new Date(t)-new Date(f))/86400000)+1);const ad=[...new Set(stallAttendance.filter(a=>a.stall_id===stall.id&&a.date>=f&&a.date<=t).map(a=>a.date))].length;rate=Math.round(ad/days*100)+"%";}
+        return`<tr><td>${stall.name}</td><td>${stall.city||"—"}</td><td>${stall.from_date||"—"}</td><td>${stall.to_date||"—"}</td><td>${st}</td><td>${ci}</td><td>${rate}</td></tr>`;
+      }).join("");
+      const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Report – ${user.brand||user.name}</title><style>body{font-family:Arial,sans-serif;color:#1a1a1a;padding:24px;max-width:900px;margin:0 auto}h1{font-size:24px;color:#C9A84C;margin:0 0 2px}h2{font-size:13px;color:#555;border-bottom:2px solid #C9A84C;padding-bottom:4px;margin:20px 0 10px;text-transform:uppercase;letter-spacing:.5px}.meta{font-size:12px;color:#888;margin-bottom:20px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.kpi{background:#fafafa;border:1px solid #e0e0e0;border-left:3px solid #C9A84C;border-radius:6px;padding:10px 14px}.kv{font-size:20px;font-weight:700;color:#C9A84C}.kl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}table{width:100%;border-collapse:collapse;font-size:11px;margin:8px 0}th{background:#f5f5f5;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #C9A84C}td{padding:5px 8px;border-bottom:1px solid #eee}@media print{@page{margin:1cm}}</style></head><body>
+      <h1>${user.brand||user.name}</h1>
+      <div class="meta">Period: <strong>${rFrom}</strong> to <strong>${rTo}</strong> &nbsp;·&nbsp; Generated: ${today}</div>
+      <h2>DTD Activity</h2>
+      <div class="grid">
+        <div class="kpi"><div class="kv">${totalDoors}</div><div class="kl">Total Doors</div></div>
+        <div class="kpi"><div class="kv">${totalRangeItems}</div><div class="kl">Total Items</div></div>
+        <div class="kpi"><div class="kv">₨${Math.round(totalSalesVal).toLocaleString()}</div><div class="kl">Sales Value PKR</div></div>
+        <div class="kpi"><div class="kv">${avgDoorsPerDay}</div><div class="kl">Avg Doors/Day</div></div>
+        <div class="kpi"><div class="kv">${uniqueBAs}</div><div class="kl">BAs Deployed</div></div>
+        <div class="kpi"><div class="kv">${rSales} / ${rGifts} / ${rSamples}</div><div class="kl">Sales / Gifts / Samples</div></div>
+      </div>
+      <h2>Stall Activity</h2>
+      <div class="grid">
+        <div class="kpi"><div class="kv">${rangeStalls.length}</div><div class="kl">Active Stalls</div></div>
+        <div class="kpi"><div class="kv">${totalCheckIns}</div><div class="kl">Total Check-ins</div></div>
+        <div class="kpi"><div class="kv">${avgAttRate!==null?avgAttRate+"%":"N/A"}</div><div class="kl">Avg Attendance</div></div>
+      </div>
+      <h2>Performance</h2>
+      <table><tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Best Performing BA</td><td>${rangeBestBA?rangeBestBA.name+" ("+rangeBestBA.pct+"% of visits)":"No data"}</td></tr>
+      <tr><td>Top SKU by Volume</td><td>${rangeTopSku?rangeTopSku[0]+" – "+rangeTopSku[1]+" units":"No data"}</td></tr>
+      <tr><td>Active Campaign</td><td>${activeCampInRange?activeCampInRange.name+" (active)":"None in range"}</td></tr>
+      </table>
+      ${rangeVisits.length>0?`<h2>Door Visits (top 50 of ${rangeVisits.length})</h2><table><tr><th>Date</th><th>Time</th><th>Customer</th><th>Items</th><th>Types</th><th>Rep</th><th>SOP</th></tr>${vRows}</table>`:""}
+      ${rangeStalls.length>0?`<h2>Stall Summary</h2><table><tr><th>Name</th><th>City</th><th>From</th><th>To</th><th>Status</th><th>Check-ins</th><th>Rate</th></tr>${sRows}</table>`:""}
+      <script>window.onload=()=>window.print();</script>
+      </body></html>`;
+      const w=window.open("","_blank");if(!w){toast("Please allow pop-ups to generate PDF");return;}w.document.write(html);w.document.close();
+    };
+
+    const presets=[
+      {id:"this_month",label:"This Month"},
+      {id:"last_month",label:"Last Month"},
+      {id:"last_3_months",label:"Last 3 Months"},
+      {id:"custom",label:"Custom"},
+    ];
+    const btnDl={display:"flex",alignItems:"center",gap:10,padding:"14px 18px",borderRadius:12,border:"1px solid rgba(201,168,76,.4)",background:"rgba(201,168,76,.1)",cursor:"pointer",color:"var(--g)",fontSize:14,fontWeight:600,width:"100%",textAlign:"left"};
+
+    return(
+      <div>
+        <div style={{background:"linear-gradient(135deg,var(--d3),var(--d4))",border:"1px solid var(--bo)",borderRadius:14,padding:"18px 20px",marginBottom:16}}>
+          <div style={{fontFamily:"Rajdhani",fontSize:22,fontWeight:700,color:"var(--g)",lineHeight:1}}>Reports &amp; Export</div>
+          <div style={{fontSize:11,color:"var(--txd)",marginTop:3,letterSpacing:.5}}>{user.name} · Client Portal</div>
+        </div>
+
+        {/* DATE RANGE SELECTOR */}
+        <div style={{...cardS,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Date Range</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {presets.map(p=>(
+              <button key={p.id} onClick={()=>setRngPreset(p.id)}
+                style={{padding:"7px 14px",borderRadius:20,border:`1px solid ${rngPreset===p.id?"var(--g)":"var(--bo)"}`,background:rngPreset===p.id?"rgba(201,168,76,.18)":"transparent",color:rngPreset===p.id?"var(--g)":"var(--txd)",fontSize:12,fontWeight:rngPreset===p.id?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {rngPreset==="custom"&&(
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:12}}>
+              <div style={{flex:1,minWidth:130}}>
+                <label style={{fontSize:10,color:"var(--txd)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>From</label>
+                <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"7px 10px",color:"var(--tx)",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{flex:1,minWidth:130}}>
+                <label style={{fontSize:10,color:"var(--txd)",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>To</label>
+                <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{width:"100%",background:"var(--d3)",border:"1px solid var(--bo)",borderRadius:8,padding:"7px 10px",color:"var(--tx)",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* SUMMARY REPORT CARD */}
+        <div style={{...cardS,marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:14}}>
+            <div>
+              <div style={{fontFamily:"Rajdhani",fontSize:18,fontWeight:700,color:"var(--g)",lineHeight:1}}>{user.brand||user.name}</div>
+              <div style={{fontSize:11,color:"var(--txd)",marginTop:4}}>{rFrom} – {rTo}</div>
+            </div>
+          </div>
+
+          {loading
+            ?[1,2,3].map(i=><div key={i} style={{height:52,background:"var(--d3)",borderRadius:8,marginBottom:8}}/>)
+            :<>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>DTD Activity</div>
+              {totalDoors===0
+                ?<div style={{fontSize:12,color:"var(--txd)",marginBottom:14,fontStyle:"italic",padding:"10px 12px",background:"var(--d3)",borderRadius:8}}>No DTD visits recorded for this period.</div>
+                :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+                  {[
+                    {l:"Total Doors",v:totalDoors},
+                    {l:"Total Items",v:totalRangeItems},
+                    {l:"Sales Value PKR",v:fmtPKR(totalSalesVal)},
+                    {l:"Avg Doors / Day",v:avgDoorsPerDay},
+                    {l:"BAs Deployed",v:uniqueBAs},
+                    {l:"Sales / Gifts / Samples",v:`${rSales} / ${rGifts} / ${rSamples}`},
+                  ].map(r=>(
+                    <div key={r.l} style={{background:"var(--d3)",borderRadius:10,padding:"10px 12px"}}>
+                      <div style={{fontSize:9,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{r.l}</div>
+                      <div style={{fontFamily:"Rajdhani",fontSize:19,fontWeight:700,color:"var(--g)",lineHeight:1}}>{r.v}</div>
+                    </div>
+                  ))}
+                </div>
+              }
+
+              <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Stall Activity</div>
+              {rangeStalls.length===0
+                ?<div style={{fontSize:12,color:"var(--txd)",marginBottom:14,fontStyle:"italic",padding:"10px 12px",background:"var(--d3)",borderRadius:8}}>No stalls active in this period.</div>
+                :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                  {[
+                    {l:"Active Stalls",v:rangeStalls.length},
+                    {l:"Check-ins",v:totalCheckIns},
+                    {l:"Avg Attendance",v:avgAttRate!==null?avgAttRate+"%":"N/A"},
+                  ].map(r=>(
+                    <div key={r.l} style={{background:"var(--d3)",borderRadius:10,padding:"10px 12px"}}>
+                      <div style={{fontSize:9,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{r.l}</div>
+                      <div style={{fontFamily:"Rajdhani",fontSize:19,fontWeight:700,color:"var(--g)",lineHeight:1}}>{r.v}</div>
+                    </div>
+                  ))}
+                </div>
+              }
+
+              <div style={{fontSize:11,fontWeight:700,color:"var(--g)",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Performance</div>
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                {[
+                  {icon:"👤",l:"Best Performing BA",v:rangeBestBA?`${rangeBestBA.name} · ${rangeBestBA.pct}% of visits`:null},
+                  {icon:"📦",l:"Top SKU by Volume",v:rangeTopSku?`${rangeTopSku[0]} · ${rangeTopSku[1]} units`:null},
+                  {icon:"🏁",l:"Campaign Status",v:activeCampInRange?activeCampInRange.name+" (active)":null,na:"No active campaign in range"},
+                ].map(r=>(
+                  <div key={r.l} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"var(--d3)",borderRadius:10,border:"1px solid var(--bo)"}}>
+                    <div style={{fontSize:16,width:24,textAlign:"center",flexShrink:0}}>{r.icon}</div>
+                    <div>
+                      <div style={{fontSize:9,color:"var(--txd)",textTransform:"uppercase",letterSpacing:.5,lineHeight:1.2}}>{r.l}</div>
+                      <div style={{fontSize:13,color:r.v?"var(--tx)":"var(--txd)",fontWeight:r.v?500:400,marginTop:2}}>{r.v||(r.na||"No data yet")}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          }
+        </div>
+
+        {/* DOWNLOAD BUTTONS */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+          <button onClick={doExportVisits} disabled={loading||rangeVisits.length===0}
+            style={{...btnDl,opacity:loading||rangeVisits.length===0?.5:1,cursor:loading||rangeVisits.length===0?"not-allowed":"pointer"}}>
+            <I n="pdf" s={22} c="var(--g)"/>
+            <div style={{textAlign:"left"}}>
+              <div>📥 Export Visits CSV</div>
+              <div style={{fontSize:11,color:"var(--txd)",fontWeight:400,marginTop:2}}>Date · Time · Customer · Items · Types · Rep · SOP &nbsp;·&nbsp; {loading?"loading…":rangeVisits.length+" rows"}</div>
+            </div>
+          </button>
+          <button onClick={doExportStalls} disabled={loading||rangeStalls.length===0}
+            style={{...btnDl,opacity:loading||rangeStalls.length===0?.5:1,cursor:loading||rangeStalls.length===0?"not-allowed":"pointer"}}>
+            <I n="pdf" s={22} c="var(--g)"/>
+            <div style={{textAlign:"left"}}>
+              <div>📥 Export Stalls CSV</div>
+              <div style={{fontSize:11,color:"var(--txd)",fontWeight:400,marginTop:2}}>Name · City · Dates · Status · Check-ins · Rate &nbsp;·&nbsp; {loading?"loading…":rangeStalls.length+" stalls"}</div>
+            </div>
+          </button>
+          <button onClick={doPrint} disabled={loading}
+            style={{...btnDl,border:"1px solid rgba(201,168,76,.6)",background:"linear-gradient(135deg,rgba(201,168,76,.2),rgba(201,168,76,.08))",fontWeight:700,opacity:loading?.5:1,cursor:loading?"not-allowed":"pointer"}}>
+            <I n="pdf" s={22} c="var(--g)"/>
+            <div style={{textAlign:"left"}}>
+              <div>📋 Download Full Report PDF</div>
+              <div style={{fontSize:11,color:"var(--txd)",fontWeight:400,marginTop:2}}>Opens print dialog — save as PDF from browser</div>
+            </div>
+          </button>
         </div>
       </div>
     );
@@ -7275,7 +7548,7 @@ export default function App(){
   const logout=()=>{localStorage.removeItem("shinkore_session");setUser(null);setPage("dash");};
   const doLogin=(u)=>{const d=initData();const fresh=d.users.find(x=>x.id===u.id)||u;const{pin:_,...sessionSafe}=fresh;localStorage.setItem("shinkore_session",JSON.stringify(sessionSafe));setUser(sessionSafe);setPage(sessionSafe.role==="admin"?"dash":sessionSafe.role==="client"?(sessionSafe.login_method==="access_code"?"client_portal":"client_dash"):"my-dash");};
 
-  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",careers:"Careers",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
+  const titles={dash:"Dashboard","my-dash":"My Dashboard",staff:"Staff & Teams",stalls:"Permission Stalls",alloc:"Allocations",attend:"Attendance",cash:"Cash & Finance",salary:"Salary & Slips",alerts:"Late Alerts",settings:"Settings","clock-in":"Clock In / Out","my-salary":"My Salary",activity:"Activity Reports","my-activity":"My Activities",personal:"Personal Finance",sync:"Google Sheets Sync",apk:"Install APK / PWA",clients:"Clients",products:"Products",campaigns:"Campaigns","dtd-admin":"DTD Reports",careers:"Careers",client_pdf:"Client Report PDF",client_dash:"Client Dashboard",client_portal:"DTD Activity",client_reports:"Reports & Export",daily_plan:"Daily Plans",training:"Training",letters:"Letters & Documents",documents:"Document History",ai:"🤖 Ask Shinkore AI"};
 
   const jobParam=new URLSearchParams(window.location.search).get("job");
   if(jobParam) return <><style>{css}</style><PublicJobPage jobId={jobParam}/></>;
@@ -7321,6 +7594,7 @@ export default function App(){
         case "client_portal": return <ClientPortalPage user={user} data={data} toast={toast}/>;
         case "client_dtd": return <ClientPortalPage user={user} data={data} toast={toast} view="dtd"/>;
         case "client_stalls": return <ClientPortalPage user={user} data={data} toast={toast} view="stalls"/>;
+        case "client_reports": return <ClientPortalPage user={user} data={data} toast={toast} view="reports"/>;
         default: return <ClientPortalPage user={user} data={data} toast={toast}/>;
       }
     } else {
