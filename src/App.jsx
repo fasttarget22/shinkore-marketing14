@@ -2527,9 +2527,10 @@ function SalaryPage({data,setData,toast}){
   const openAdd=(u)=>{
     const now=new Date();
     const mon=now.toLocaleDateString("en-PK",{month:"long",year:"numeric"});
-    const att=(data.attendance||[]).filter(a=>a.user_id===u.id);
+    const ym=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const att=(data.attendance||[]).filter(a=>a.user_id===u.id&&(a.date||"").startsWith(ym));
     const attDays=new Set(att.map(a=>a.date)).size;
-    const dtdClocks=(data.dtd_clock||[]).filter(d=>d.ba_id===u.id);
+    const dtdClocks=(data.dtd_clock||[]).filter(d=>d.ba_id===u.id&&(d.work_date||"").startsWith(ym));
     const dtdDays=new Set(dtdClocks.map(d=>d.work_date)).size;
     const days=attDays+dtdDays;
     const{total:dtdTotal,breakdown}=calcDTDBonus(u.id);
