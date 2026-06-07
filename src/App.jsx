@@ -15,7 +15,7 @@ const pushToSB=async(table,rows)=>{if(!rows||rows.length===0)return true;try{con
 let syncStatusCb=null;
 const setSyncStatusCb=(fn)=>{syncStatusCb=fn;};
 const deleteFromSB=async(table,id)=>{try{const{error}=await SB.from(table).delete().eq("id",id);if(error){console.log("SB delete error",table,error);return false;}return true;}catch(e){console.log("SB delete error",table,e);return false;}};
-const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done","sm_documents"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
+const loadFromSB=async()=>{try{const tables=["sm_users","sm_stalls","sm_allocations","sm_attendance","sm_client_payments","sm_handovers","sm_expenses","sm_salary","sm_personal","sm_trainings","sm_training_done","sm_documents","sm_dtd_clock"];const results={};for(const t of tables){const{data}=await SB.from(t).select("*");results[t]=data||[];}return results;}catch(e){return null;}};
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
@@ -114,6 +114,7 @@ const initData = () => {
     stalls: [],
     allocations: [],
     attendance: [],
+    dtd_clock: [],
     client_payments: [],
     handovers: [],
     expenses: [],
@@ -6385,7 +6386,7 @@ export default function App(){
   // Step 6: Pull fresh data from cloud on startup + every 30s, merge in.
   useEffect(()=>{
     var stop=false;
-    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_documents:"documents",sm_personal:"personal",sm_trainings:"trainings",sm_training_done:"training_done"};
+    var mapTbl={sm_users:"users",sm_stalls:"stalls",sm_allocations:"allocations",sm_attendance:"attendance",sm_client_payments:"client_payments",sm_handovers:"handovers",sm_expenses:"expenses",sm_salary:"salary",sm_documents:"documents",sm_personal:"personal",sm_trainings:"trainings",sm_training_done:"training_done",sm_dtd_clock:"dtd_clock"};
     var pull=async function(){
       var remote=await loadFromSB();
       if(!remote||stop)return;
