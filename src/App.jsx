@@ -1186,7 +1186,7 @@ function StallsPage({data,setData,toast}){
 function AllocPage({data,setData,toast}){
   const [tab,setTab]=useState("overview");
   const [show,setShow]=useState(false);
-  const [f,setF]=useState({stall_id:"",user_id:"",duty_start:"09:00",daily_rate:"",from_date:"",to_date:"",paid_by:"admin"});
+  const [f,setF]=useState({stall_id:"",user_id:"",duty_start:"09:00",duty_end:"17:00",daily_rate:"",from_date:"",to_date:"",paid_by:"admin"});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const onStallChange=(sid)=>{
     set("stall_id",sid);
@@ -1403,6 +1403,7 @@ function AllocPage({data,setData,toast}){
               </div>
               <div className="frow">
                 <div className="fg"><label className="fl">Duty Start Time</label><input className="fi" type="time" value={f.duty_start} onChange={e=>set("duty_start",e.target.value)}/></div>
+                <div className="fg"><label className="fl">Duty End Time</label><input className="fi" type="time" value={f.duty_end||"17:00"} onChange={e=>set("duty_end",e.target.value)}/></div>
                 <div className="fg"><label className="fl">Daily Rate (PKR)</label><input className="fi" type="number" value={f.daily_rate} onChange={e=>set("daily_rate",e.target.value)} placeholder="Auto from profile"/></div>
               </div>
               <div className="frow">
@@ -1472,6 +1473,17 @@ function ClockPage({user,data,setData,toast}){
 
   const doClockOut=(att)=>{
     const now=new Date().toLocaleTimeString("en-PK",{hour:"2-digit",minute:"2-digit"});
+    const alloc=(data.allocations||[]).find(a=>a.user_id===att.user_id&&a.stall_id===att.stall_id);
+    if(alloc&&alloc.duty_end){
+      const [eh,em]=alloc.duty_end.split(":").map(Number);
+      const [nh,nm]=now.split(":").map(Number);
+      const endMins=eh*60+em;
+      const nowMins=nh*60+nm;
+      if(nowMins<endMins){
+        toast(`Cannot clock out before duty end time (${alloc.duty_end})`);
+        return;
+      }
+    }
     const d={...data,attendance:(data.attendance||[]).map(a=>a.id===att.id?{...a,clock_out:now}:a)};
     setData(d);save(d);toast(`Clocked out — ${now}`);
   };
