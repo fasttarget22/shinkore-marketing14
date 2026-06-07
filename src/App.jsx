@@ -550,6 +550,55 @@ function SupSubTabBar({page,setPage}){
   );
 }
 
+// ─── CLIENT BOTTOM NAV + SUB-TAB BAR ─────────────────────────────────────────
+const CLIENT_MASTER_OF=(p)=>{
+  if(["client_dtd","client_stalls"].includes(p)) return "mydata";
+  return "home";
+};
+
+function ClientBottomNav({page,setPage}){
+  const master=CLIENT_MASTER_OF(page);
+  const tabs=[
+    {id:"home",   icon:"home",   label:"Home",    first:"client_portal"},
+    {id:"mydata", icon:"folder", label:"My Data", first:"client_dtd"},
+  ];
+  return(
+    <nav style={{position:"fixed",bottom:0,left:0,right:0,height:58,background:"var(--d2)",borderTop:"1px solid var(--bo)",display:"flex",zIndex:200}}>
+      {tabs.map(t=>{
+        const active=master===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.first)} style={{flex:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",color:active?"var(--g)":"var(--txd)",padding:"6px 0",minHeight:44}}>
+            {active&&<div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",width:36,height:2,background:"var(--g)",borderRadius:"0 0 2px 2px"}}/>}
+            <I n={t.icon} s={20} c={active?"var(--g)":"var(--txd)"}/>
+            <span style={{fontSize:10,fontWeight:active?700:400,letterSpacing:.3,lineHeight:1}}>{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function ClientSubTabBar({page,setPage}){
+  const master=CLIENT_MASTER_OF(page);
+  if(master!=="mydata") return null;
+  const tabs=[
+    {id:"client_dtd",    label:"DTD Activity"},
+    {id:"client_stalls", label:"My Stalls"},
+  ];
+  return(
+    <div style={{display:"flex",gap:6,padding:"8px 12px",borderBottom:"1px solid var(--bo)",overflowX:"auto",scrollbarWidth:"none",background:"var(--d2)",flexShrink:0,position:"sticky",top:0,zIndex:50}}>
+      {tabs.map(t=>{
+        const active=page===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.id)} style={{flexShrink:0,padding:"5px 14px",borderRadius:20,border:`1px solid ${active?"var(--g)":"var(--bo)"}`,background:active?"rgba(201,168,76,.15)":"transparent",color:active?"var(--g)":"var(--txd)",fontSize:12,fontWeight:active?600:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── ADMIN TOP TAB BAR + SUB-TAB BAR ─────────────────────────────────────────
 const ADMIN_MASTER_OF=(p)=>{
   if(["staff","attend","salary","alerts","careers"].includes(p)) return "hr";
@@ -4242,7 +4291,7 @@ function ClientStoreMap({client,data}){
 
 // ─── CLIENT DASHBOARD V2 ──────────────────────────────────────────────────────
 // ─── CLIENT PORTAL (DTD + STALLS VIEW) ───────────────────────────────────────
-function ClientPortalPage({user,data,toast}){
+function ClientPortalPage({user,data,toast,view}){
   const today=new Date().toISOString().slice(0,10);
   const [campaigns,setCampaigns]=useState([]);
   const [visits,setVisits]=useState([]);
@@ -4317,7 +4366,7 @@ function ClientPortalPage({user,data,toast}){
       {loading&&<div className="card"><div style={{textAlign:"center",padding:"40px",color:"var(--txd)"}}>Loading your data…</div></div>}
 
       {!loading&&<>
-        <div className="card" style={{marginBottom:16}}>
+        {(!view||view==="dtd")&&<div className="card" style={{marginBottom:16}}>
           <div className="ch"><I n="map" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{visits.length} visits (last 50)</div></div>{visits.length>0&&<button className="bs" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>{const nl=String.fromCharCode(10);const h="Date,Time,Customer,Phone,Items,Field Rep"+nl;const r=visits.map(v=>{const dt=new Date(v.visit_time);return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",v.customer_phone||"",visitItemCount(v.id),baFirstName(v.ba_id)].join(",");}).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="visits.csv";a.click();}}><I n="pdf" s={13}/>Export</button>}</div>
           <div className="cb">
             {visits.length===0
@@ -4345,9 +4394,9 @@ function ClientPortalPage({user,data,toast}){
               </div>
             }
           </div>
-        </div>
+        </div>}
 
-        <div className="card">
+        {(!view||view==="stalls")&&<div className="card">
           <div className="ch"><I n="pin" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Your Stalls</div><div className="cs">{stalls.length} stalls</div></div></div>
           <div className="cb">
             {stalls.length===0
@@ -4376,7 +4425,7 @@ function ClientPortalPage({user,data,toast}){
               </div>
             }
           </div>
-        </div>
+        </div>}
       </>}
     </div>
   );
@@ -6716,6 +6765,8 @@ export default function App(){
       switch(page){
         case "client_dash": return <ClientDashPage user={user} data={data} toast={toast}/>;
         case "client_portal": return <ClientPortalPage user={user} data={data} toast={toast}/>;
+        case "client_dtd": return <ClientPortalPage user={user} data={data} toast={toast} view="dtd"/>;
+        case "client_stalls": return <ClientPortalPage user={user} data={data} toast={toast} view="stalls"/>;
         default: return <ClientPortalPage user={user} data={data} toast={toast}/>;
       }
     } else {
@@ -6757,10 +6808,12 @@ export default function App(){
           {isAdmin&&<AdminSubTabBar page={page} setPage={setPage}/>}
           {user.role==="ba"&&<BASubTabBar page={page} setPage={setPage}/>}
           {user.role==="supervisor"&&<SupSubTabBar page={page} setPage={setPage}/>}
-          <div className="content" style={(user.role==="ba"||user.role==="supervisor")?{paddingBottom:70}:{}}>{render()}</div>
+          {user.role==="client"&&<ClientSubTabBar page={page} setPage={setPage}/>}
+          <div className="content" style={(user.role==="ba"||user.role==="supervisor"||user.role==="client")?{paddingBottom:70}:{}}>{render()}</div>
         </main>
         {user.role==="ba"&&<BABottomNav page={page} setPage={setPage}/>}
         {user.role==="supervisor"&&<SupBottomNav page={page} setPage={setPage}/>}
+        {user.role==="client"&&<ClientBottomNav page={page} setPage={setPage}/>}
       </div>
       {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>}
     </>
