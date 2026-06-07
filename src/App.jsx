@@ -2513,7 +2513,10 @@ function SalaryPage({data,setData,toast}){
     const now=new Date();
     const mon=now.toLocaleDateString("en-PK",{month:"long",year:"numeric"});
     const att=(data.attendance||[]).filter(a=>a.user_id===u.id);
-    const days=new Set(att.map(a=>a.date)).size;
+    const attDays=new Set(att.map(a=>a.date)).size;
+    const dtdClocks=(data.dtd_clock||[]).filter(d=>d.ba_id===u.id);
+    const dtdDays=new Set(dtdClocks.map(d=>d.work_date)).size;
+    const days=attDays+dtdDays;
     const{total:dtdTotal,breakdown}=calcDTDBonus(u.id);
     const autoNotes=breakdown.length?breakdown.map(b=>`${b.name}: PKR ${b.earned.toLocaleString()}`).join(", "):"";
     setDtdBreakdown(breakdown);
