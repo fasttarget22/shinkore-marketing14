@@ -4081,7 +4081,7 @@ function ClientPortalPage({user,data,toast}){
 
       {!loading&&<>
         <div className="card" style={{marginBottom:16}}>
-          <div className="ch"><I n="map" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{visits.length} visits (last 50)</div></div></div>
+          <div className="ch"><I n="map" s={17} c="var(--g)"/><div style={{flex:1}}><div className="ct">Recent Door Visits</div><div className="cs">{visits.length} visits (last 50)</div></div>{visits.length>0&&<button className="bs" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>{const nl=String.fromCharCode(10);const h="Date,Time,Customer,Phone,Items,Field Rep"+nl;const r=visits.map(v=>{const dt=new Date(v.visit_time);return[dt.toLocaleDateString("en-GB"),dt.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}),v.customer_name||"",v.customer_phone||"",visitItemCount(v.id),baFirstName(v.ba_id)].join(",");}).join(nl);const blob=new Blob([h+r],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="visits.csv";a.click();}}><I n="pdf" s={13}/>Export</button>}</div>
           <div className="cb">
             {visits.length===0
               ?<div style={{textAlign:"center",padding:"32px",color:"var(--txd)"}}>
