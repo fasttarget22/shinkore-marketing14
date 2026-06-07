@@ -722,11 +722,20 @@ function StaffPage({data,setData,toast}){
   };
 
   const doDel=(u)=>{
-    if(!confirm(`Delete ${u.name}?`)) return;
+    if(!confirm(`Delete ${u.name}? This also removes their allocations, attendance, DTD clock records, salary records, and documents.`)) return;
     var orphanAllocs=(data.allocations||[]).filter(x=>x.user_id===u.id);
     var orphanAtt=(data.attendance||[]).filter(x=>x.user_id===u.id);
-    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id),allocations:(data.allocations||[]).filter(x=>x.user_id!==u.id),attendance:(data.attendance||[]).filter(x=>x.user_id!==u.id)};
-    setData(d);save(d);deleteFromSB("sm_users",u.id);orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});orphanAtt.forEach(function(a){deleteFromSB("sm_attendance",a.id);});toast("Removed.");
+    var orphanSalary=(data.salary||[]).filter(x=>x.user_id===u.id);
+    var orphanDocs=(data.documents||[]).filter(x=>x.user_id===u.id);
+    const d={...data,users:(data.users||[]).filter(x=>x.id!==u.id),allocations:(data.allocations||[]).filter(x=>x.user_id!==u.id),attendance:(data.attendance||[]).filter(x=>x.user_id!==u.id),salary:(data.salary||[]).filter(x=>x.user_id!==u.id),documents:(data.documents||[]).filter(x=>x.user_id!==u.id)};
+    setData(d);save(d);
+    deleteFromSB("sm_users",u.id);
+    orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});
+    orphanAtt.forEach(function(a){deleteFromSB("sm_attendance",a.id);});
+    orphanSalary.forEach(function(r){deleteFromSB("sm_salary",r.id);});
+    orphanDocs.forEach(function(doc){deleteFromSB("sm_documents",doc.id);});
+    SB.from("sm_dtd_clock").delete().eq("ba_id",u.id);
+    toast("Removed.");
   };
 
   const addTeam=()=>{
@@ -970,9 +979,11 @@ function StallsPage({data,setData,toast}){
   };
 
   const doDel=(s)=>{
-    if(!confirm(`Delete stall "${s.name}"?`)) return;
-    const d={...data,stalls:(data.stalls||[]).filter(x=>x.id!==s.id)};
-    setData(d);save(d);deleteFromSB("sm_stalls",s.id);toast("Stall removed.");
+    if(!confirm(`Delete stall "${s.name}"? This also removes all allocations and attendance for this stall.`)) return;
+    var orphanAllocs=(data.allocations||[]).filter(x=>x.stall_id===s.id);
+    var orphanAtt=(data.attendance||[]).filter(x=>x.stall_id===s.id);
+    const d={...data,stalls:(data.stalls||[]).filter(x=>x.id!==s.id),allocations:(data.allocations||[]).filter(x=>x.stall_id!==s.id),attendance:(data.attendance||[]).filter(x=>x.stall_id!==s.id)};
+    setData(d);save(d);deleteFromSB("sm_stalls",s.id);orphanAllocs.forEach(function(a){deleteFromSB("sm_allocations",a.id);});orphanAtt.forEach(function(a){deleteFromSB("sm_attendance",a.id);});toast("Stall removed.");
   };
 
   return(
@@ -4751,7 +4762,12 @@ function CampaignsPage({data,toast}){
   };
 
   const doDel=async(c)=>{
-    if(!confirm(`Delete "${c.name}"? This also removes all BA targets.`)) return;
+    if(!confirm(`Delete "${c.name}"? This also removes all its door visits, items, clock records and targets.`)) return;
+    const{data:visitRows}=await SB.from("sm_door_visits").select("id").eq("campaign_id",c.id);
+    const visitIds=(visitRows||[]).map(v=>v.id);
+    if(visitIds.length>0) await SB.from("sm_door_items").delete().in("visit_id",visitIds);
+    await SB.from("sm_door_visits").delete().eq("campaign_id",c.id);
+    await SB.from("sm_dtd_clock").delete().eq("campaign_id",c.id);
     await SB.from("sm_campaign_targets").delete().eq("campaign_id",c.id);
     const{error}=await SB.from("sm_campaigns").delete().eq("id",c.id);
     if(error) return toast("Delete failed.");
