@@ -550,6 +550,86 @@ function SupSubTabBar({page,setPage}){
   );
 }
 
+// ─── ADMIN TOP TAB BAR + SUB-TAB BAR ─────────────────────────────────────────
+const ADMIN_MASTER_OF=(p)=>{
+  if(["staff","attend","salary","alerts","careers"].includes(p)) return "hr";
+  if(["stalls","alloc"].includes(p)) return "fieldops";
+  if(["products","campaigns","dtd-admin","sops"].includes(p)) return "dtd";
+  if(["cash","daily_plan"].includes(p)) return "finance";
+  if(["clients","control-panel"].includes(p)) return "clients";
+  return "home";
+};
+
+function AdminTopTabBar({page,setPage}){
+  const master=ADMIN_MASTER_OF(page);
+  const tabs=[
+    {id:"home",     icon:"home",      label:"Home",       first:"dash"},
+    {id:"hr",       icon:"users",     label:"HR",         first:"staff"},
+    {id:"fieldops", icon:"map",       label:"Field Ops",  first:"stalls"},
+    {id:"dtd",      icon:"chart",     label:"DTD",        first:"products"},
+    {id:"finance",  icon:"money",     label:"Finance",    first:"cash"},
+    {id:"clients",  icon:"briefcase", label:"Clients",    first:"clients"},
+  ];
+  return(
+    <div style={{display:"flex",overflowX:"auto",scrollbarWidth:"none",borderBottom:"2px solid var(--bo)",background:"var(--d2)",position:"sticky",top:0,zIndex:60,flexShrink:0}}>
+      {tabs.map(t=>{
+        const active=master===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.first)} style={{flexShrink:0,minWidth:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"10px 8px",background:"none",border:"none",borderBottom:active?"2px solid var(--g)":"2px solid transparent",marginBottom:-2,cursor:"pointer",color:active?"var(--g)":"var(--txd)"}}>
+            <I n={t.icon} s={17} c={active?"var(--g)":"var(--txd)"}/>
+            <span style={{fontSize:11,fontWeight:active?700:400,letterSpacing:.3,whiteSpace:"nowrap"}}>{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminSubTabBar({page,setPage}){
+  const subTabs={
+    hr:[
+      {id:"staff",      label:"Staff & Teams"},
+      {id:"attend",     label:"Attendance"},
+      {id:"salary",     label:"Salary"},
+      {id:"alerts",     label:"Late Alerts"},
+      {id:"careers",    label:"Careers"},
+    ],
+    fieldops:[
+      {id:"stalls",     label:"Stalls"},
+      {id:"alloc",      label:"Allocations"},
+    ],
+    dtd:[
+      {id:"products",   label:"Products"},
+      {id:"campaigns",  label:"Campaigns"},
+      {id:"dtd-admin",  label:"DTD Reports"},
+      {id:"sops",       label:"SOP Manager"},
+    ],
+    finance:[
+      {id:"cash",       label:"Cash & Finance"},
+      {id:"daily_plan", label:"Daily Plans"},
+    ],
+    clients:[
+      {id:"clients",        label:"Client Directory"},
+      {id:"control-panel",  label:"Control Panel"},
+    ],
+  };
+  const master=ADMIN_MASTER_OF(page);
+  const tabs=subTabs[master];
+  if(!tabs) return null;
+  return(
+    <div style={{display:"flex",gap:6,padding:"8px 12px",borderBottom:"1px solid var(--bo)",overflowX:"auto",scrollbarWidth:"none",background:"var(--d2)",flexShrink:0}}>
+      {tabs.map(t=>{
+        const active=page===t.id;
+        return(
+          <button key={t.id} onClick={()=>setPage(t.id)} style={{flexShrink:0,padding:"5px 14px",borderRadius:20,border:`1px solid ${active?"var(--g)":"var(--bo)"}`,background:active?"rgba(201,168,76,.15)":"transparent",color:active?"var(--g)":"var(--txd)",fontSize:12,fontWeight:active?600:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 function AdminDash({data,toast,setPage}){
   const hour = new Date().getHours();
@@ -6673,6 +6753,8 @@ export default function App(){
             {syncState==="synced"&&<span title="All changes synced to cloud" style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(46,204,113,.12)",border:"1px solid rgba(46,204,113,.25)",color:"var(--g)",marginRight:8}}>✅ Synced</span>}
             <button className="bic" onClick={logout} title="Logout"><I n="out" s={15}/></button>
           </div>
+          {isAdmin&&<AdminTopTabBar page={page} setPage={setPage}/>}
+          {isAdmin&&<AdminSubTabBar page={page} setPage={setPage}/>}
           {user.role==="ba"&&<BASubTabBar page={page} setPage={setPage}/>}
           {user.role==="supervisor"&&<SupSubTabBar page={page} setPage={setPage}/>}
           <div className="content" style={(user.role==="ba"||user.role==="supervisor")?{paddingBottom:70}:{}}>{render()}</div>
